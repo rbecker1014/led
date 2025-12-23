@@ -1,95 +1,987 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>LED Arch Calculator</title><style>:root{--bg:#0b0f14;--card:#111826;--text:#e7eef8;--muted:#9fb2cc;--tubeA:rgba(96,165,250,.30);--tubeB:rgba(52,211,153,.30);--join:rgba(244,114,182,.95);--strip:rgba(253,224,71,.55);--warn:rgba(251,146,60,.18);--warn2:rgba(251,146,60,.85)}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}.wrap{max-width:1220px;margin:24px auto;padding:0 16px;display:grid;grid-template-columns:560px 1fr;gap:16px}.card{background:var(--card);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}h1{font-size:18px;margin:0 0 10px}.sub{color:var(--muted);font-size:13px;line-height:1.35;margin:0 0 14px}label{display:block;font-size:13px;color:var(--muted);margin-top:12px}input,select{width:100%;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:#0c1422;color:var(--text);font-size:14px}input[type=range]{padding:0;height:34px}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}.results{margin-top:14px;border-top:1px solid rgba(255,255,255,.08);padding-top:14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.k{color:var(--muted);font-size:12px}.v{font-size:15px;font-weight:700;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.note{margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.06);color:var(--muted);font-size:12px;line-height:1.35}.warn{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--warn);border:1px solid rgba(251,146,60,.22);color:rgba(255,255,255,.86);font-size:12px;line-height:1.35}.warn b{color:var(--warn2)}svg{width:100%;height:560px;display:block;background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.01));border-radius:14px;border:1px solid rgba(255,255,255,.08)}</style></head>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LED Arch Calculator</title>
+  <style>
+    :root {
+      --bg: #0a0e14;
+      --card: #111826;
+      --border: rgba(255,255,255,0.08);
+      --text: #e7eef8;
+      --muted: #8b9cb3;
+      --accent: #3b82f6;
+      --accent-dim: rgba(59,130,246,0.15);
+      --success: #10b981;
+      --warn-bg: rgba(251,146,60,0.12);
+      --warn-border: rgba(251,146,60,0.25);
+      --warn-text: #fb923c;
+      --tube-a: rgba(96,165,250,0.35);
+      --tube-b: rgba(52,211,153,0.35);
+      --join: #f472b6;
+      --ground: rgba(255,255,255,0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 20px;
+      min-height: 100vh;
+    }
+    @media (max-width: 900px) {
+      .container { grid-template-columns: 1fr; }
+    }
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin: 0 0 4px;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin: 0 0 20px;
+    }
+    .section {
+      margin-bottom: 20px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+    .section-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin: 0 0 12px;
+    }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .field { margin-bottom: 14px; }
+    .field:last-child { margin-bottom: 0; }
+    input[type="number"], input[type="text"], select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.25);
+      color: var(--text);
+      font-size: 0.9rem;
+      transition: border-color 0.2s;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    input:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+    /* Toggle switch */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+    }
+    .toggle-label {
+      font-size: 0.85rem;
+      color: var(--text);
+    }
+    .toggle {
+      position: relative;
+      width: 44px;
+      height: 24px;
+    }
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: rgba(255,255,255,0.1);
+      border-radius: 24px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      left: 3px;
+      top: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle input:checked + .toggle-slider {
+      background: var(--accent);
+    }
+    .toggle input:checked + .toggle-slider::before {
+      transform: translateX(20px);
+    }
+
+    /* Results grid */
+    .results-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .result-item {
+      background: rgba(0,0,0,0.2);
+      border-radius: 10px;
+      padding: 12px;
+    }
+    .result-label {
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .result-value {
+      font-size: 1rem;
+      font-weight: 600;
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+    }
+    .result-value.success { color: var(--success); }
+    .result-value.warn { color: var(--warn-text); }
+
+    /* Warning box */
+    .warning {
+      margin-top: 14px;
+      padding: 12px;
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-border);
+      border-radius: 10px;
+      font-size: 0.8rem;
+      color: rgba(255,255,255,0.85);
+      display: none;
+    }
+    .warning.visible { display: block; }
+    .warning strong { color: var(--warn-text); }
+
+    /* Note box */
+    .note {
+      margin-top: 12px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.04);
+      border-radius: 10px;
+      font-size: 0.75rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    /* SVG container */
+    .viz-panel {
+      display: flex;
+      flex-direction: column;
+    }
+    .viz-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .viz-title {
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+    .viz-controls {
+      display: flex;
+      gap: 8px;
+    }
+    .viz-btn {
+      padding: 6px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .viz-btn:hover, .viz-btn.active {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+      color: var(--text);
+    }
+    svg {
+      flex: 1;
+      width: 100%;
+      min-height: 500px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(0,0,0,0.1) 100%);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+    }
+
+    /* Legend */
+    .legend {
+      display: flex;
+      gap: 16px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .legend-line {
+      width: 20px;
+      height: 3px;
+      border-radius: 2px;
+    }
+  </style>
+</head>
 <body>
-<div class="wrap">
-  <div class="card">
+<div class="container">
+  <!-- Control Panel -->
+  <div class="panel">
     <h1>LED Arch Calculator</h1>
-    <p class="sub">Natural bend with smoothness-first or length-first solving. Heat map shows curvature concentration.</p>
+    <p class="subtitle">Design and visualize a flexible PEX tubing LED arch with natural bend simulation</p>
 
-    <label>Width (W)</label><input id="width" type="number" value="10" step="0.01">
-    <label>Height (H)</label><input id="height" type="number" value="6" step="0.01">
-
-    <label>Prefer smoothness</label>
-    <input id="preferSmooth" type="checkbox" checked>
-
-    <label>Tubing length (L)</label>
-    <input id="tubeLen" placeholder="auto">
-
-    <label>Curvature heat map</label>
-    <select id="heat"><option value="on">On</option><option value="off">Off</option></select>
-
-    <div class="results">
-      <div class="grid">
-        <div><div class="k">Length used</div><div id="length" class="v">—</div></div>
-        <div><div class="k">Curvature concentration</div><div id="conc" class="v">—</div></div>
+    <!-- Arch Dimensions -->
+    <div class="section">
+      <div class="section-title">Arch Dimensions</div>
+      <div class="row">
+        <div class="field">
+          <label for="width">Width at ground (ft)</label>
+          <input type="number" id="width" value="10" min="1" max="30" step="0.1">
+        </div>
+        <div class="field">
+          <label for="height">Apex height (ft)</label>
+          <input type="number" id="height" value="7" min="1" max="20" step="0.1">
+        </div>
       </div>
-      <div id="warnBox" class="warn" style="display:none;"></div>
+    </div>
+
+    <!-- Solving Mode -->
+    <div class="section">
+      <div class="section-title">Solving Mode</div>
+      <div class="toggle-row">
+        <span class="toggle-label">Prefer smoothness</span>
+        <label class="toggle">
+          <input type="checkbox" id="preferSmooth" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="field" style="margin-top: 12px;">
+        <label for="fixedLength">Fixed tubing length (ft)</label>
+        <input type="number" id="fixedLength" placeholder="Auto-computed" min="5" max="50" step="0.1" disabled>
+      </div>
+      <p class="note" id="modeNote">
+        <strong>Smoothness-first:</strong> Finds the natural bend that minimizes curvature concentration. Tubing length is computed automatically.
+      </p>
+    </div>
+
+    <!-- Tubing & Cuts -->
+    <div class="section">
+      <div class="section-title">Tubing & Cuts</div>
+      <div class="row">
+        <div class="field">
+          <label for="stickLength">PEX stick length (ft)</label>
+          <input type="number" id="stickLength" value="10" min="1" max="20" step="0.5">
+        </div>
+        <div class="field">
+          <label for="cutStrategy">Cut strategy</label>
+          <select id="cutStrategy">
+            <option value="equal">Equal cuts (join at midpoint)</option>
+            <option value="offset">Full + cut stick (offset join)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- LED Configuration -->
+    <div class="section">
+      <div class="section-title">LED Strip Configuration</div>
+      <div class="row">
+        <div class="field">
+          <label for="ledLength">Strip length (ft)</label>
+          <input type="number" id="ledLength" value="16.4" min="1" max="100" step="0.1">
+        </div>
+        <div class="field">
+          <label for="ledCount">Number of LEDs</label>
+          <input type="number" id="ledCount" value="300" min="10" max="1000" step="1">
+        </div>
+      </div>
+      <div class="toggle-row" style="margin-top: 8px;">
+        <span class="toggle-label">Blinking mode</span>
+        <label class="toggle">
+          <input type="checkbox" id="blinkMode">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="section">
+      <div class="section-title">Calculated Results</div>
+      <div class="results-grid">
+        <div class="result-item">
+          <div class="result-label">Tubing length</div>
+          <div class="result-value" id="resultLength">—</div>
+        </div>
+        <div class="result-item">
+          <div class="result-label">Base angle</div>
+          <div class="result-value" id="resultAngle">—</div>
+        </div>
+        <div class="result-item">
+          <div class="result-label">Curvature ratio</div>
+          <div class="result-value" id="resultCurvature">—</div>
+        </div>
+        <div class="result-item">
+          <div class="result-label">LED fit</div>
+          <div class="result-value" id="resultLedFit">—</div>
+        </div>
+      </div>
+      <div class="results-grid" style="margin-top: 12px;">
+        <div class="result-item">
+          <div class="result-label">Cut lengths</div>
+          <div class="result-value" id="resultCuts">—</div>
+        </div>
+        <div class="result-item">
+          <div class="result-label">Material waste</div>
+          <div class="result-value" id="resultWaste">—</div>
+        </div>
+      </div>
+      <div class="warning" id="warning"></div>
     </div>
   </div>
 
-  <div class="card">
-    <svg id="svg" viewBox="0 0 920 560">
-      <path id="tube" fill="none" stroke="var(--tubeA)" stroke-width="12"/>
+  <!-- Visualization Panel -->
+  <div class="panel viz-panel">
+    <div class="viz-header">
+      <span class="viz-title">Arch Visualization</span>
+      <div class="viz-controls">
+        <button class="viz-btn active" id="btnHeatmap">Heat Map</button>
+        <button class="viz-btn" id="btnLeds">Show LEDs</button>
+        <button class="viz-btn" id="btnJoins">Show Joins</button>
+      </div>
+    </div>
+    <svg id="svg" viewBox="0 0 800 500" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <linearGradient id="groundGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="transparent"/>
+          <stop offset="50%" stop-color="rgba(255,255,255,0.1)"/>
+          <stop offset="100%" stop-color="transparent"/>
+        </linearGradient>
+      </defs>
+      <!-- Ground line -->
+      <line id="ground" x1="50" y1="450" x2="750" y2="450" stroke="url(#groundGrad)" stroke-width="2"/>
+      <!-- Arch group -->
+      <g id="archGroup"></g>
     </svg>
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-line" style="background: linear-gradient(90deg, #22c55e, #eab308, #ef4444);"></div>
+        <span>Curvature (low → high)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background: #f472b6;"></div>
+        <span>Join point</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background: #fbbf24;"></div>
+        <span>LED coverage</span>
+      </div>
+    </div>
   </div>
 </div>
 
 <script>
 (() => {
+  'use strict';
+
+  // DOM Elements
   const $ = id => document.getElementById(id);
-  const W = $('width'), H = $('height'), L = $('tubeLen'),
-        smooth = $('preferSmooth'), heat = $('heat');
-  const lenOut = $('length'), concOut = $('conc'), warn = $('warnBox');
-  const tube = $('tube'), svg = $('svg');
+  const els = {
+    width: $('width'),
+    height: $('height'),
+    preferSmooth: $('preferSmooth'),
+    fixedLength: $('fixedLength'),
+    stickLength: $('stickLength'),
+    cutStrategy: $('cutStrategy'),
+    ledLength: $('ledLength'),
+    ledCount: $('ledCount'),
+    blinkMode: $('blinkMode'),
+    modeNote: $('modeNote'),
+    warning: $('warning'),
+    svg: $('svg'),
+    archGroup: $('archGroup'),
+    resultLength: $('resultLength'),
+    resultAngle: $('resultAngle'),
+    resultCurvature: $('resultCurvature'),
+    resultLedFit: $('resultLedFit'),
+    resultCuts: $('resultCuts'),
+    resultWaste: $('resultWaste'),
+    btnHeatmap: $('btnHeatmap'),
+    btnLeds: $('btnLeds'),
+    btnJoins: $('btnJoins')
+  };
 
-  const bezier = (W,H,dx,n=1000) => {
-    const dy = 4*H/3, pts=[];
-    for(let i=0;i<=n;i++){
-      const t=i/n,mt=1-t;
-      const x = (-W/2)*mt*mt*mt + 3*(-W/2+dx)*mt*mt*t + 3*(W/2-dx)*mt*t*t + (W/2)*t*t*t;
-      const y = 0*mt*mt*mt + 3*dy*mt*mt*t + 3*dy*mt*t*t;
-      pts.push({x,y});
+  // State
+  let showHeatmap = true;
+  let showLeds = false;
+  let showJoins = false;
+  let blinkState = true;
+  let blinkInterval = null;
+
+  // Constants
+  const SVG_WIDTH = 800;
+  const SVG_HEIGHT = 500;
+  const MARGIN = 60;
+  const GROUND_Y = 450;
+  const CURVE_SAMPLES = 200;
+
+  // Rainbow colors for LEDs
+  const rainbowColors = [
+    '#ff0000', '#ff4500', '#ff8c00', '#ffd700', '#adff2f',
+    '#00ff00', '#00fa9a', '#00ffff', '#1e90ff', '#4169e1',
+    '#8a2be2', '#ff00ff', '#ff1493', '#ff69b4'
+  ];
+
+  /**
+   * Generate cubic Bezier curve points for natural arch bend
+   * Uses control points that simulate flexible tube behavior
+   */
+  function generateBezierCurve(W, H, controlOffset = null) {
+    // Default control offset for natural bend (~0.28 * W for smooth curve)
+    const dx = controlOffset ?? W * 0.28;
+    // Control point height: 4/3 * H ensures smooth apex
+    const dy = H * 4 / 3;
+
+    const points = [];
+    const P0 = { x: -W / 2, y: 0 };
+    const P1 = { x: -W / 2 + dx, y: dy };
+    const P2 = { x: W / 2 - dx, y: dy };
+    const P3 = { x: W / 2, y: 0 };
+
+    for (let i = 0; i <= CURVE_SAMPLES; i++) {
+      const t = i / CURVE_SAMPLES;
+      const mt = 1 - t;
+      const mt2 = mt * mt;
+      const mt3 = mt2 * mt;
+      const t2 = t * t;
+      const t3 = t2 * t;
+
+      points.push({
+        x: mt3 * P0.x + 3 * mt2 * t * P1.x + 3 * mt * t2 * P2.x + t3 * P3.x,
+        y: mt3 * P0.y + 3 * mt2 * t * P1.y + 3 * mt * t2 * P2.y + t3 * P3.y,
+        t
+      });
     }
-    return pts;
-  };
 
-  const curvature = pts => {
-    const k=[];
-    for(let i=1;i<pts.length-1;i++){
-      const a=Math.hypot(pts[i].x-pts[i-1].x,pts[i].y-pts[i-1].y),
-            b=Math.hypot(pts[i+1].x-pts[i].x,pts[i+1].y-pts[i].y),
-            c=Math.hypot(pts[i+1].x-pts[i-1].x,pts[i+1].y-pts[i-1].y);
-      const area=Math.abs((pts[i].x-pts[i-1].x)*(pts[i+1].y-pts[i-1].y)-(pts[i].y-pts[i-1].y)*(pts[i+1].x-pts[i-1].x))/2;
-      k.push(2*area/(a*b*c||1));
+    return { points, P0, P1, P2, P3 };
+  }
+
+  /**
+   * Calculate arc length of curve using numerical integration
+   */
+  function calculateArcLength(points) {
+    let length = 0;
+    for (let i = 1; i < points.length; i++) {
+      const dx = points[i].x - points[i - 1].x;
+      const dy = points[i].y - points[i - 1].y;
+      length += Math.sqrt(dx * dx + dy * dy);
     }
-    return k;
-  };
+    return length;
+  }
 
-  const update = () => {
-    const w=+W.value,h=+H.value;
-    const pts = bezier(w,h,w*0.28);
-    const k = curvature(pts);
-    const q50=k.sort((a,b)=>a-b)[Math.floor(k.length*.5)];
-    const q95=k[Math.floor(k.length*.95)];
-    const conc=q95/q50;
+  /**
+   * Calculate curvature at each point using Menger curvature formula
+   */
+  function calculateCurvature(points) {
+    const curvatures = [0]; // First point
 
-    lenOut.textContent = pts.length.toFixed(0);
-    concOut.textContent = conc.toFixed(2)+'×';
+    for (let i = 1; i < points.length - 1; i++) {
+      const p0 = points[i - 1];
+      const p1 = points[i];
+      const p2 = points[i + 1];
 
-    warn.style.display = !smooth.checked && conc>1.25?'block':'none';
-    warn.innerHTML = '<b>Warning:</b> curvature concentrated';
+      // Side lengths
+      const a = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+      const b = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const c = Math.hypot(p2.x - p0.x, p2.y - p0.y);
 
-    const vb=svg.viewBox.baseVal;
-    const px=x=>vb.width/2 + x*(vb.width/(w*1.2));
-    const py=y=>vb.height*.85 - y*(vb.height/(h*1.2));
+      // Triangle area using cross product
+      const area = Math.abs((p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x)) / 2;
 
-    tube.setAttribute('d','M '+pts.map(p=>px(p.x)+','+py(p.y)).join(' L '));
-  };
+      // Menger curvature: k = 4 * area / (a * b * c)
+      const denom = a * b * c;
+      curvatures.push(denom > 0.0001 ? (4 * area) / denom : 0);
+    }
 
-  ['input','change'].forEach(e=>{
-    [W,H,L,smooth,heat].forEach(el=>el.addEventListener(e,update))
-  });
+    curvatures.push(0); // Last point
+    return curvatures;
+  }
 
-  update();
+  /**
+   * Calculate curvature concentration metric (q95/q50)
+   */
+  function calculateConcentration(curvatures) {
+    const sorted = [...curvatures].filter(k => k > 0).sort((a, b) => a - b);
+    if (sorted.length < 10) return 1;
+
+    const q50 = sorted[Math.floor(sorted.length * 0.5)];
+    const q95 = sorted[Math.floor(sorted.length * 0.95)];
+
+    return q50 > 0 ? q95 / q50 : 1;
+  }
+
+  /**
+   * Solve for control offset to achieve target length (length-first mode)
+   */
+  function solveForLength(W, H, targetLength) {
+    let lo = 0.1;
+    let hi = W * 0.5;
+
+    for (let iter = 0; iter < 50; iter++) {
+      const mid = (lo + hi) / 2;
+      const { points } = generateBezierCurve(W, H, mid);
+      const len = calculateArcLength(points);
+
+      if (Math.abs(len - targetLength) < 0.001) break;
+
+      if (len < targetLength) {
+        hi = mid;
+      } else {
+        lo = mid;
+      }
+    }
+
+    return (lo + hi) / 2;
+  }
+
+  /**
+   * Calculate base angle at ground (tangent angle)
+   */
+  function calculateBaseAngle(points) {
+    if (points.length < 2) return 0;
+    const p0 = points[0];
+    const p1 = points[1];
+    const angle = Math.atan2(p1.y - p0.y, p1.x - p0.x);
+    return angle * (180 / Math.PI);
+  }
+
+  /**
+   * Get curvature color (green → yellow → red)
+   */
+  function getCurvatureColor(k, maxK) {
+    const ratio = Math.min(k / maxK, 1);
+
+    if (ratio < 0.5) {
+      // Green to Yellow
+      const t = ratio * 2;
+      const r = Math.round(34 + t * (234 - 34));
+      const g = Math.round(197 + t * (179 - 197));
+      const b = Math.round(94 + t * (8 - 94));
+      return `rgb(${r},${g},${b})`;
+    } else {
+      // Yellow to Red
+      const t = (ratio - 0.5) * 2;
+      const r = Math.round(234 + t * (239 - 234));
+      const g = Math.round(179 - t * 179);
+      const b = Math.round(8 - t * 8);
+      return `rgb(${r},${g},${b})`;
+    }
+  }
+
+  /**
+   * Transform coordinates to SVG space
+   */
+  function toSVG(x, y, scale, centerX) {
+    return {
+      x: centerX + x * scale,
+      y: GROUND_Y - y * scale
+    };
+  }
+
+  /**
+   * Calculate cut information
+   */
+  function calculateCuts(tubeLength, stickLength, strategy) {
+    const sticksNeeded = Math.ceil(tubeLength / stickLength);
+    const totalMaterial = sticksNeeded * stickLength;
+    const waste = totalMaterial - tubeLength;
+
+    let cuts, joinPosition;
+
+    if (strategy === 'equal') {
+      // Equal cuts on both sides, join at midpoint
+      const cutLen = tubeLength / 2;
+      cuts = `2 × ${cutLen.toFixed(2)} ft`;
+      joinPosition = 0.5;
+    } else {
+      // One full stick + cut stick
+      if (tubeLength <= stickLength) {
+        cuts = `1 × ${tubeLength.toFixed(2)} ft`;
+        joinPosition = null;
+      } else {
+        const remainder = tubeLength - stickLength;
+        cuts = `${stickLength} ft + ${remainder.toFixed(2)} ft`;
+        joinPosition = stickLength / tubeLength;
+      }
+    }
+
+    return { cuts, waste, sticksNeeded, joinPosition };
+  }
+
+  /**
+   * Calculate LED fit information
+   */
+  function calculateLedFit(tubeLength, ledLength) {
+    if (ledLength >= tubeLength) {
+      const trim = ledLength - tubeLength;
+      return {
+        status: trim > 0 ? 'trim' : 'exact',
+        message: trim > 0 ? `Trim ${trim.toFixed(2)} ft` : 'Perfect fit',
+        coverage: 1,
+        gap: 0,
+        trim
+      };
+    } else {
+      const gap = (tubeLength - ledLength) / 2;
+      return {
+        status: 'gap',
+        message: `Gap ${gap.toFixed(2)} ft each end`,
+        coverage: ledLength / tubeLength,
+        gap,
+        trim: 0
+      };
+    }
+  }
+
+  /**
+   * Main render function
+   */
+  function render() {
+    const W = parseFloat(els.width.value) || 10;
+    const H = parseFloat(els.height.value) || 7;
+    const smoothFirst = els.preferSmooth.checked;
+    const stickLen = parseFloat(els.stickLength.value) || 10;
+    const cutStrategy = els.cutStrategy.value;
+    const ledLen = parseFloat(els.ledLength.value) || 16.4;
+    const ledNum = parseInt(els.ledCount.value) || 300;
+
+    // Generate baseline (smoothness-first) curve
+    const baseline = generateBezierCurve(W, H);
+    const baselineLength = calculateArcLength(baseline.points);
+    const baselineCurvatures = calculateCurvature(baseline.points);
+    const baselineConc = calculateConcentration(baselineCurvatures);
+
+    // Determine actual curve based on mode
+    let curve, length, controlOffset;
+    let curvatureWarning = false;
+
+    if (smoothFirst) {
+      curve = baseline;
+      length = baselineLength;
+    } else {
+      const fixedLen = parseFloat(els.fixedLength.value);
+      if (fixedLen && fixedLen > 0) {
+        controlOffset = solveForLength(W, H, fixedLen);
+        curve = generateBezierCurve(W, H, controlOffset);
+        length = calculateArcLength(curve.points);
+
+        // Check if curvature increased significantly
+        const newCurvatures = calculateCurvature(curve.points);
+        const newConc = calculateConcentration(newCurvatures);
+        if (newConc > baselineConc * 1.15) {
+          curvatureWarning = true;
+        }
+      } else {
+        curve = baseline;
+        length = baselineLength;
+      }
+    }
+
+    const curvatures = calculateCurvature(curve.points);
+    const concentration = calculateConcentration(curvatures);
+    const maxCurvature = Math.max(...curvatures);
+    const baseAngle = calculateBaseAngle(curve.points);
+    const cutInfo = calculateCuts(length, stickLen, cutStrategy);
+    const ledFit = calculateLedFit(length, ledLen);
+
+    // Update results
+    els.resultLength.textContent = `${length.toFixed(2)} ft`;
+    els.resultAngle.textContent = `${Math.abs(baseAngle).toFixed(1)}°`;
+    els.resultCurvature.textContent = `${concentration.toFixed(2)}×`;
+    els.resultCurvature.className = 'result-value' + (concentration > 1.5 ? ' warn' : ' success');
+
+    els.resultLedFit.textContent = ledFit.message;
+    els.resultLedFit.className = 'result-value' + (ledFit.status === 'exact' ? ' success' : '');
+
+    els.resultCuts.textContent = cutInfo.cuts;
+    els.resultWaste.textContent = `${cutInfo.waste.toFixed(2)} ft`;
+    els.resultWaste.className = 'result-value' + (cutInfo.waste > 2 ? ' warn' : '');
+
+    // Warning
+    if (curvatureWarning) {
+      els.warning.innerHTML = '<strong>Warning:</strong> The specified length causes higher curvature concentration than the natural bend. Consider using the smoothness-first length of ' + baselineLength.toFixed(2) + ' ft.';
+      els.warning.classList.add('visible');
+    } else {
+      els.warning.classList.remove('visible');
+    }
+
+    // Calculate SVG scale
+    const maxDim = Math.max(W, H) * 1.3;
+    const scale = (SVG_WIDTH - MARGIN * 2) / maxDim;
+    const centerX = SVG_WIDTH / 2;
+
+    // Clear previous rendering
+    els.archGroup.innerHTML = '';
+
+    // Render tube segments with curvature heat map
+    if (showHeatmap) {
+      for (let i = 0; i < curve.points.length - 1; i++) {
+        const p1 = toSVG(curve.points[i].x, curve.points[i].y, scale, centerX);
+        const p2 = toSVG(curve.points[i + 1].x, curve.points[i + 1].y, scale, centerX);
+        const color = getCurvatureColor(curvatures[i], maxCurvature);
+
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', p1.x);
+        line.setAttribute('y1', p1.y);
+        line.setAttribute('x2', p2.x);
+        line.setAttribute('y2', p2.y);
+        line.setAttribute('stroke', color);
+        line.setAttribute('stroke-width', '14');
+        line.setAttribute('stroke-linecap', 'round');
+        line.setAttribute('opacity', '0.7');
+        els.archGroup.appendChild(line);
+      }
+    } else {
+      // Simple tube rendering
+      const pathData = curve.points.map((p, i) => {
+        const sp = toSVG(p.x, p.y, scale, centerX);
+        return (i === 0 ? 'M' : 'L') + sp.x.toFixed(1) + ',' + sp.y.toFixed(1);
+      }).join(' ');
+
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', pathData);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', 'rgba(96,165,250,0.5)');
+      path.setAttribute('stroke-width', '14');
+      path.setAttribute('stroke-linecap', 'round');
+      els.archGroup.appendChild(path);
+    }
+
+    // Render join point
+    if (showJoins && cutInfo.joinPosition !== null) {
+      const joinIndex = Math.floor(cutInfo.joinPosition * (curve.points.length - 1));
+      const jp = curve.points[joinIndex];
+      const sjp = toSVG(jp.x, jp.y, scale, centerX);
+
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', sjp.x);
+      circle.setAttribute('cy', sjp.y);
+      circle.setAttribute('r', '10');
+      circle.setAttribute('fill', '#f472b6');
+      circle.setAttribute('stroke', 'white');
+      circle.setAttribute('stroke-width', '2');
+      els.archGroup.appendChild(circle);
+
+      // Join label
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', sjp.x + 15);
+      text.setAttribute('y', sjp.y - 10);
+      text.setAttribute('fill', '#f472b6');
+      text.setAttribute('font-size', '12');
+      text.setAttribute('font-family', 'system-ui');
+      text.textContent = 'Join';
+      els.archGroup.appendChild(text);
+    }
+
+    // Render LEDs
+    if (showLeds) {
+      // Calculate LED positions along curve
+      const totalCurveLen = length;
+      const ledSpacing = ledLen / ledNum;
+
+      // Calculate cumulative distances
+      const distances = [0];
+      for (let i = 1; i < curve.points.length; i++) {
+        const dx = curve.points[i].x - curve.points[i - 1].x;
+        const dy = curve.points[i].y - curve.points[i - 1].y;
+        distances.push(distances[i - 1] + Math.sqrt(dx * dx + dy * dy));
+      }
+
+      // LED strip position
+      const startDist = ledFit.gap;
+      const endDist = startDist + ledLen;
+
+      // Render each LED
+      for (let i = 0; i < ledNum; i++) {
+        const ledDist = startDist + (i + 0.5) * ledSpacing;
+        if (ledDist > totalCurveLen) break;
+
+        // Find position on curve
+        let segIndex = 0;
+        for (let j = 1; j < distances.length; j++) {
+          if (distances[j] >= ledDist) {
+            segIndex = j - 1;
+            break;
+          }
+        }
+
+        // Interpolate position
+        const segStart = distances[segIndex];
+        const segEnd = distances[segIndex + 1] || segStart + 0.01;
+        const t = (ledDist - segStart) / (segEnd - segStart);
+
+        const p1 = curve.points[segIndex];
+        const p2 = curve.points[segIndex + 1] || p1;
+        const ledX = p1.x + t * (p2.x - p1.x);
+        const ledY = p1.y + t * (p2.y - p1.y);
+
+        const sp = toSVG(ledX, ledY, scale, centerX);
+
+        // Blinking logic
+        const shouldShow = !els.blinkMode.checked || (blinkState ? i % 2 === 0 : i % 2 === 1);
+
+        if (shouldShow) {
+          const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          circle.setAttribute('cx', sp.x);
+          circle.setAttribute('cy', sp.y);
+          circle.setAttribute('r', '4');
+          circle.setAttribute('fill', rainbowColors[i % rainbowColors.length]);
+          circle.setAttribute('opacity', '0.9');
+          els.archGroup.appendChild(circle);
+        }
+      }
+    }
+
+    // Render ground markers
+    const leftEnd = toSVG(-W / 2, 0, scale, centerX);
+    const rightEnd = toSVG(W / 2, 0, scale, centerX);
+
+    // Width dimension
+    const dimY = GROUND_Y + 25;
+    const dimLine = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    dimLine.innerHTML = `
+      <line x1="${leftEnd.x}" y1="${dimY}" x2="${rightEnd.x}" y2="${dimY}" stroke="#8b9cb3" stroke-width="1"/>
+      <line x1="${leftEnd.x}" y1="${GROUND_Y}" x2="${leftEnd.x}" y2="${dimY + 5}" stroke="#8b9cb3" stroke-width="1"/>
+      <line x1="${rightEnd.x}" y1="${GROUND_Y}" x2="${rightEnd.x}" y2="${dimY + 5}" stroke="#8b9cb3" stroke-width="1"/>
+      <text x="${centerX}" y="${dimY + 18}" fill="#8b9cb3" font-size="12" text-anchor="middle" font-family="system-ui">${W} ft</text>
+    `;
+    els.archGroup.appendChild(dimLine);
+
+    // Height dimension
+    const apex = toSVG(0, H, scale, centerX);
+    const heightLine = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    heightLine.innerHTML = `
+      <line x1="${leftEnd.x - 25}" y1="${GROUND_Y}" x2="${leftEnd.x - 25}" y2="${apex.y}" stroke="#8b9cb3" stroke-width="1"/>
+      <line x1="${leftEnd.x - 30}" y1="${GROUND_Y}" x2="${leftEnd.x - 20}" y2="${GROUND_Y}" stroke="#8b9cb3" stroke-width="1"/>
+      <line x1="${leftEnd.x - 30}" y1="${apex.y}" x2="${leftEnd.x - 20}" y2="${apex.y}" stroke="#8b9cb3" stroke-width="1"/>
+      <text x="${leftEnd.x - 35}" y="${(GROUND_Y + apex.y) / 2 + 4}" fill="#8b9cb3" font-size="12" text-anchor="end" font-family="system-ui">${H} ft</text>
+    `;
+    els.archGroup.appendChild(heightLine);
+  }
+
+  /**
+   * Toggle button handler
+   */
+  function toggleButton(btn, state) {
+    btn.classList.toggle('active', state);
+  }
+
+  /**
+   * Initialize event listeners
+   */
+  function init() {
+    // Input listeners
+    const inputs = [
+      els.width, els.height, els.fixedLength,
+      els.stickLength, els.cutStrategy,
+      els.ledLength, els.ledCount
+    ];
+
+    inputs.forEach(el => {
+      el.addEventListener('input', render);
+    });
+
+    // Mode toggle
+    els.preferSmooth.addEventListener('change', () => {
+      const smooth = els.preferSmooth.checked;
+      els.fixedLength.disabled = smooth;
+      els.modeNote.innerHTML = smooth
+        ? '<strong>Smoothness-first:</strong> Finds the natural bend that minimizes curvature concentration. Tubing length is computed automatically.'
+        : '<strong>Length-first:</strong> Specify a fixed tubing length. The curve will adjust to match, but may concentrate curvature.';
+      render();
+    });
+
+    // Viz control buttons
+    els.btnHeatmap.addEventListener('click', () => {
+      showHeatmap = !showHeatmap;
+      toggleButton(els.btnHeatmap, showHeatmap);
+      render();
+    });
+
+    els.btnLeds.addEventListener('click', () => {
+      showLeds = !showLeds;
+      toggleButton(els.btnLeds, showLeds);
+      render();
+    });
+
+    els.btnJoins.addEventListener('click', () => {
+      showJoins = !showJoins;
+      toggleButton(els.btnJoins, showJoins);
+      render();
+    });
+
+    // Blink mode
+    els.blinkMode.addEventListener('change', () => {
+      if (els.blinkMode.checked) {
+        blinkInterval = setInterval(() => {
+          blinkState = !blinkState;
+          if (showLeds) render();
+        }, 500);
+      } else {
+        clearInterval(blinkInterval);
+        blinkState = true;
+        if (showLeds) render();
+      }
+    });
+
+    // Initial render
+    render();
+  }
+
+  init();
 })();
 </script>
-</body></html>
+</body>
+</html>

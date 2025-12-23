@@ -271,7 +271,7 @@
   <!-- Control Panel -->
   <div class="panel">
     <h1>LED Arch Calculator</h1>
-    <p class="subtitle">Design and visualize a flexible PEX tubing LED arch with natural bend simulation</p>
+    <p class="subtitle">Design and visualize a flexible PEX tubing LED arch optimized for semicircular shape</p>
 
     <!-- Arch Dimensions -->
     <div class="section">
@@ -286,14 +286,8 @@
           <input type="number" id="height" value="7" min="1" max="20" step="0.1">
         </div>
       </div>
-      <div class="field" style="margin-top: 14px;">
-        <label for="smoothness">Arc smoothness: <span id="smoothnessValue">50%</span></label>
-        <input type="range" id="smoothness" value="50" min="0" max="100" step="1" style="width: 100%; accent-color: var(--accent);">
-        <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--muted); margin-top: 4px;">
-          <span>Pointed</span>
-          <span>Natural</span>
-          <span>Rounded</span>
-        </div>
+      <div class="note" style="margin-top: 14px;">
+        <strong>Optimal semicircle:</strong> Shape uses vertical tangents at base with control height = 4H/3 for the best circular arc approximation.
       </div>
     </div>
 
@@ -301,7 +295,7 @@
     <div class="section">
       <div class="section-title">Solving Mode</div>
       <div class="toggle-row">
-        <span class="toggle-label">Prefer smoothness</span>
+        <span class="toggle-label">Auto-compute length</span>
         <label class="toggle">
           <input type="checkbox" id="preferSmooth" checked>
           <span class="toggle-slider"></span>
@@ -312,7 +306,7 @@
         <input type="number" id="fixedLength" placeholder="Auto-computed" min="5" max="50" step="0.1" disabled>
       </div>
       <p class="note" id="modeNote">
-        <strong>Smoothness-first:</strong> Finds the natural bend that minimizes curvature concentration. Tubing length is computed automatically.
+        <strong>Optimal shape:</strong> Uses the best semicircle approximation (uniform curvature). Tubing length is computed automatically.
       </p>
     </div>
 
@@ -440,8 +434,6 @@
   const els = {
     width: $('width'),
     height: $('height'),
-    smoothness: $('smoothness'),
-    smoothnessValue: $('smoothnessValue'),
     preferSmooth: $('preferSmooth'),
     fixedLength: $('fixedLength'),
     stickLength: $('stickLength'),
@@ -486,60 +478,35 @@
   ];
 
   /**
-   * Generate cubic Bezier curve points for natural arch bend
-   * Uses control points that simulate flexible tube behavior
+   * Generate cubic Bezier curve points for optimal semicircle approximation
+   *
+   * Physics assumptions:
+   * - Uniform rigidity across the LED strip
+   * - Pinned ends (can rotate freely, not clamped)
+   * - Shape optimized to be as close to a semicircle/semi-ellipse as possible
+   *
+   * For optimal semicircle approximation with a cubic Bezier:
+   * - dx = 0: control points directly above endpoints (vertical tangent at base)
+   * - dy = 4H/3: standard formula for circular arc Bezier approximation
+   *
+   * This gives the most uniform curvature distribution possible with a single Bezier.
+   *
    * @param {number} W - Width at ground
    * @param {number} H - Apex height
-   * @param {number} controlOffset - Override for horizontal control offset (used in length-first mode)
-   * @param {number} smoothness - 0-100 value controlling curve shape (0=pointed, 50=natural, 100=rounded)
+   * @param {number} dyOverride - Override for vertical control point (used in length-first mode)
    */
-  function generateBezierCurve(W, H, controlOffset = null, smoothness = 50) {
-    // Map smoothness (0-100) to control point parameters
-    // smoothness 0: pointed (small dx, low dy) -> triangular shape
-    // smoothness 50: natural Bezier (dx = 0.28W, dy = 1.33H)
-    // smoothness 100: rounded/circular (large dx, high dy)
-
-    const smoothFactor = smoothness / 100;
-
-    // Horizontal offset: ranges from 0.08*W (pointed) to 0.48*W (rounded)
-    // Natural value at 50% is 0.28*W
-    const dxMin = W * 0.08;
-    const dxNatural = W * 0.28;
-    const dxMax = W * 0.48;
-
-    let dx;
-    if (controlOffset !== null) {
-      // Length-first mode: use specified offset
-      dx = controlOffset;
-    } else if (smoothFactor <= 0.5) {
-      // Interpolate from pointed to natural
-      const t = smoothFactor * 2;
-      dx = dxMin + t * (dxNatural - dxMin);
-    } else {
-      // Interpolate from natural to rounded
-      const t = (smoothFactor - 0.5) * 2;
-      dx = dxNatural + t * (dxMax - dxNatural);
-    }
-
-    // Vertical control point height: affects curvature distribution
-    // Ranges from 1.0*H (pointed) to 1.55*H (rounded), with 1.33*H as natural
-    const dyMin = H * 1.0;
-    const dyNatural = H * 4 / 3;
-    const dyMax = H * 1.55;
-
-    let dy;
-    if (smoothFactor <= 0.5) {
-      const t = smoothFactor * 2;
-      dy = dyMin + t * (dyNatural - dyMin);
-    } else {
-      const t = (smoothFactor - 0.5) * 2;
-      dy = dyNatural + t * (dyMax - dyNatural);
-    }
+  function generateBezierCurve(W, H, dyOverride = null) {
+    // Optimal semicircle approximation:
+    // dx = 0 gives vertical tangent at the base (like a true semicircle)
+    // dy = 4H/3 is the standard Bezier approximation for circular arcs
+    // This ensures the curve passes through (0, H) at t=0.5
+    const dx = 0;
+    const dy = dyOverride !== null ? dyOverride : (4 * H / 3);
 
     const points = [];
     const P0 = { x: -W / 2, y: 0 };
-    const P1 = { x: -W / 2 + dx, y: dy };
-    const P2 = { x: W / 2 - dx, y: dy };
+    const P1 = { x: -W / 2 + dx, y: dy };  // Directly above P0
+    const P2 = { x: W / 2 - dx, y: dy };   // Directly above P3
     const P3 = { x: W / 2, y: 0 };
 
     for (let i = 0; i <= CURVE_SAMPLES; i++) {
@@ -615,23 +582,26 @@
   }
 
   /**
-   * Solve for control offset to achieve target length (length-first mode)
+   * Solve for dy (control point height) to achieve target length (length-first mode)
+   * Uses binary search to find the dy value that produces the desired arc length.
    */
-  function solveForLength(W, H, targetLength, smoothness = 50) {
-    let lo = 0.1;
-    let hi = W * 0.5;
+  function solveForLength(W, H, targetLength) {
+    // Search for dy that gives the target arc length
+    // dy range: from H (flat curve) to 3*H (very tall curve)
+    let lo = H;
+    let hi = 3 * H;
 
     for (let iter = 0; iter < 50; iter++) {
       const mid = (lo + hi) / 2;
-      const { points } = generateBezierCurve(W, H, mid, smoothness);
+      const { points } = generateBezierCurve(W, H, mid);
       const len = calculateArcLength(points);
 
       if (Math.abs(len - targetLength) < 0.001) break;
 
       if (len < targetLength) {
-        hi = mid;
+        lo = mid;  // Need higher dy for longer arc
       } else {
-        lo = mid;
+        hi = mid;  // Need lower dy for shorter arc
       }
     }
 
@@ -743,24 +713,20 @@
   function render() {
     const W = parseFloat(els.width.value) || 10;
     const H = parseFloat(els.height.value) || 7;
-    const smoothness = parseInt(els.smoothness.value) || 50;
     const smoothFirst = els.preferSmooth.checked;
     const stickLen = parseFloat(els.stickLength.value) || 10;
     const cutStrategy = els.cutStrategy.value;
     const ledLen = parseFloat(els.ledLength.value) || 16.4;
     const ledNum = parseInt(els.ledCount.value) || 300;
 
-    // Update smoothness display
-    els.smoothnessValue.textContent = `${smoothness}%`;
-
-    // Generate baseline (smoothness-first) curve with current smoothness setting
-    const baseline = generateBezierCurve(W, H, null, smoothness);
+    // Generate optimal semicircle curve (dy = 4H/3 for best circular approximation)
+    const baseline = generateBezierCurve(W, H);
     const baselineLength = calculateArcLength(baseline.points);
     const baselineCurvatures = calculateCurvature(baseline.points);
     const baselineConc = calculateConcentration(baselineCurvatures);
 
     // Determine actual curve based on mode
-    let curve, length, controlOffset;
+    let curve, length;
     let curvatureWarning = false;
 
     if (smoothFirst) {
@@ -769,8 +735,8 @@
     } else {
       const fixedLen = parseFloat(els.fixedLength.value);
       if (fixedLen && fixedLen > 0) {
-        controlOffset = solveForLength(W, H, fixedLen, smoothness);
-        curve = generateBezierCurve(W, H, controlOffset, smoothness);
+        const dyOverride = solveForLength(W, H, fixedLen);
+        curve = generateBezierCurve(W, H, dyOverride);
         length = calculateArcLength(curve.points);
 
         // Check if curvature increased significantly
@@ -980,7 +946,7 @@
   function init() {
     // Input listeners
     const inputs = [
-      els.width, els.height, els.smoothness, els.fixedLength,
+      els.width, els.height, els.fixedLength,
       els.stickLength, els.cutStrategy,
       els.ledLength, els.ledCount
     ];
@@ -994,8 +960,8 @@
       const smooth = els.preferSmooth.checked;
       els.fixedLength.disabled = smooth;
       els.modeNote.innerHTML = smooth
-        ? '<strong>Smoothness-first:</strong> Finds the natural bend that minimizes curvature concentration. Tubing length is computed automatically.'
-        : '<strong>Length-first:</strong> Specify a fixed tubing length. The curve will adjust to match, but may concentrate curvature.';
+        ? '<strong>Optimal shape:</strong> Uses the best semicircle approximation (uniform curvature). Tubing length is computed automatically.'
+        : '<strong>Fixed length:</strong> Specify tubing length. Shape adjusts to match, maintaining vertical tangents at base.';
       render();
     });
 

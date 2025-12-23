@@ -286,6 +286,15 @@
           <input type="number" id="height" value="7" min="1" max="20" step="0.1">
         </div>
       </div>
+      <div class="field" style="margin-top: 14px;">
+        <label for="smoothness">Arc smoothness: <span id="smoothnessValue">50%</span></label>
+        <input type="range" id="smoothness" value="50" min="0" max="100" step="1" style="width: 100%; accent-color: var(--accent);">
+        <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--muted); margin-top: 4px;">
+          <span>Pointed</span>
+          <span>Natural</span>
+          <span>Rounded</span>
+        </div>
+      </div>
     </div>
 
     <!-- Solving Mode -->
@@ -431,6 +440,8 @@
   const els = {
     width: $('width'),
     height: $('height'),
+    smoothness: $('smoothness'),
+    smoothnessValue: $('smoothnessValue'),
     preferSmooth: $('preferSmooth'),
     fixedLength: $('fixedLength'),
     stickLength: $('stickLength'),
@@ -477,12 +488,53 @@
   /**
    * Generate cubic Bezier curve points for natural arch bend
    * Uses control points that simulate flexible tube behavior
+   * @param {number} W - Width at ground
+   * @param {number} H - Apex height
+   * @param {number} controlOffset - Override for horizontal control offset (used in length-first mode)
+   * @param {number} smoothness - 0-100 value controlling curve shape (0=pointed, 50=natural, 100=rounded)
    */
-  function generateBezierCurve(W, H, controlOffset = null) {
-    // Default control offset for natural bend (~0.28 * W for smooth curve)
-    const dx = controlOffset ?? W * 0.28;
-    // Control point height: 4/3 * H ensures smooth apex
-    const dy = H * 4 / 3;
+  function generateBezierCurve(W, H, controlOffset = null, smoothness = 50) {
+    // Map smoothness (0-100) to control point parameters
+    // smoothness 0: pointed (small dx, low dy) -> triangular shape
+    // smoothness 50: natural Bezier (dx = 0.28W, dy = 1.33H)
+    // smoothness 100: rounded/circular (large dx, high dy)
+
+    const smoothFactor = smoothness / 100;
+
+    // Horizontal offset: ranges from 0.08*W (pointed) to 0.48*W (rounded)
+    // Natural value at 50% is 0.28*W
+    const dxMin = W * 0.08;
+    const dxNatural = W * 0.28;
+    const dxMax = W * 0.48;
+
+    let dx;
+    if (controlOffset !== null) {
+      // Length-first mode: use specified offset
+      dx = controlOffset;
+    } else if (smoothFactor <= 0.5) {
+      // Interpolate from pointed to natural
+      const t = smoothFactor * 2;
+      dx = dxMin + t * (dxNatural - dxMin);
+    } else {
+      // Interpolate from natural to rounded
+      const t = (smoothFactor - 0.5) * 2;
+      dx = dxNatural + t * (dxMax - dxNatural);
+    }
+
+    // Vertical control point height: affects curvature distribution
+    // Ranges from 1.0*H (pointed) to 1.55*H (rounded), with 1.33*H as natural
+    const dyMin = H * 1.0;
+    const dyNatural = H * 4 / 3;
+    const dyMax = H * 1.55;
+
+    let dy;
+    if (smoothFactor <= 0.5) {
+      const t = smoothFactor * 2;
+      dy = dyMin + t * (dyNatural - dyMin);
+    } else {
+      const t = (smoothFactor - 0.5) * 2;
+      dy = dyNatural + t * (dyMax - dyNatural);
+    }
 
     const points = [];
     const P0 = { x: -W / 2, y: 0 };
@@ -505,7 +557,7 @@
       });
     }
 
-    return { points, P0, P1, P2, P3 };
+    return { points, P0, P1, P2, P3, dx, dy };
   }
 
   /**
@@ -565,13 +617,13 @@
   /**
    * Solve for control offset to achieve target length (length-first mode)
    */
-  function solveForLength(W, H, targetLength) {
+  function solveForLength(W, H, targetLength, smoothness = 50) {
     let lo = 0.1;
     let hi = W * 0.5;
 
     for (let iter = 0; iter < 50; iter++) {
       const mid = (lo + hi) / 2;
-      const { points } = generateBezierCurve(W, H, mid);
+      const { points } = generateBezierCurve(W, H, mid, smoothness);
       const len = calculateArcLength(points);
 
       if (Math.abs(len - targetLength) < 0.001) break;
@@ -691,14 +743,18 @@
   function render() {
     const W = parseFloat(els.width.value) || 10;
     const H = parseFloat(els.height.value) || 7;
+    const smoothness = parseInt(els.smoothness.value) || 50;
     const smoothFirst = els.preferSmooth.checked;
     const stickLen = parseFloat(els.stickLength.value) || 10;
     const cutStrategy = els.cutStrategy.value;
     const ledLen = parseFloat(els.ledLength.value) || 16.4;
     const ledNum = parseInt(els.ledCount.value) || 300;
 
-    // Generate baseline (smoothness-first) curve
-    const baseline = generateBezierCurve(W, H);
+    // Update smoothness display
+    els.smoothnessValue.textContent = `${smoothness}%`;
+
+    // Generate baseline (smoothness-first) curve with current smoothness setting
+    const baseline = generateBezierCurve(W, H, null, smoothness);
     const baselineLength = calculateArcLength(baseline.points);
     const baselineCurvatures = calculateCurvature(baseline.points);
     const baselineConc = calculateConcentration(baselineCurvatures);
@@ -713,8 +769,8 @@
     } else {
       const fixedLen = parseFloat(els.fixedLength.value);
       if (fixedLen && fixedLen > 0) {
-        controlOffset = solveForLength(W, H, fixedLen);
-        curve = generateBezierCurve(W, H, controlOffset);
+        controlOffset = solveForLength(W, H, fixedLen, smoothness);
+        curve = generateBezierCurve(W, H, controlOffset, smoothness);
         length = calculateArcLength(curve.points);
 
         // Check if curvature increased significantly
@@ -924,7 +980,7 @@
   function init() {
     // Input listeners
     const inputs = [
-      els.width, els.height, els.fixedLength,
+      els.width, els.height, els.smoothness, els.fixedLength,
       els.stickLength, els.cutStrategy,
       els.ledLength, els.ledCount
     ];

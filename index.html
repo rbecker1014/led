@@ -883,6 +883,53 @@
   }
 
   /**
+   * Find the optimal base angle that minimizes stress concentration.
+   * Uses golden section search to find the angle that distributes
+   * curvature most evenly along the arch.
+   */
+  function findOptimalAngle(W, L) {
+    const phi = (1 + Math.sqrt(5)) / 2;  // Golden ratio
+
+    // Angle bounds in radians (15° to 85°)
+    let a = 15 * Math.PI / 180;
+    let b = 85 * Math.PI / 180;
+
+    // Tolerance for convergence
+    const tol = 0.5 * Math.PI / 180;  // 0.5 degree
+
+    // Function to evaluate: stress concentration for a given angle
+    function evaluate(theta) {
+      const curve = generateElasticaCurve(W, L, theta);
+      const curvatures = calculateCurvature(curve.points);
+      return calculateConcentration(curvatures);
+    }
+
+    // Golden section search for minimum
+    let c = b - (b - a) / phi;
+    let d = a + (b - a) / phi;
+    let fc = evaluate(c);
+    let fd = evaluate(d);
+
+    for (let iter = 0; iter < 30 && (b - a) > tol; iter++) {
+      if (fc < fd) {
+        b = d;
+        d = c;
+        fd = fc;
+        c = b - (b - a) / phi;
+        fc = evaluate(c);
+      } else {
+        a = c;
+        c = d;
+        fc = fd;
+        d = a + (b - a) / phi;
+        fd = evaluate(d);
+      }
+    }
+
+    return (a + b) / 2;
+  }
+
+  /**
    * Solve for the arch shape given width and target arc length.
    *
    * The angle theta is derived from the length-to-width ratio:
@@ -895,7 +942,7 @@
   function solveForShape(W, targetLength) {
     // Clamp length to valid range
     // Note: This function is kept for backwards compatibility but elastica is preferred
-    const minLen = W * 1.02;
+    const minLen = W;
     const maxLen = W * 3.0;
     const L = Math.max(minLen, Math.min(maxLen, targetLength));
 
@@ -1041,21 +1088,17 @@
     const ledLen = parseFloat(els.ledLength.value) || 16.4;
     const ledNum = parseInt(els.ledCount.value) || 300;
 
-    // Validate: arch length must be greater than base width
+    // Validate: arch length must be at least equal to base width
     // Using elastica physics, we can handle much longer arches (up to ~π ratio for a full loop)
-    const minLength = W * 1.02;
+    const minLength = W;
     const maxLength = W * 3.0;  // Elastica can handle higher ratios smoothly
     const clampedL = Math.max(minLength, Math.min(maxLength, L));
 
     // Determine theta: auto-compute or use manual value
     let theta;
     if (els.autoAngle.checked) {
-      // Compute angle from length ratio using elastica physics
-      // As L/W increases, angle increases
-      const ratio = (clampedL - minLength) / (maxLength - minLength);
-      const thetaMin = 20 * Math.PI / 180;
-      const thetaMax = 85 * Math.PI / 180;
-      theta = thetaMin + ratio * (thetaMax - thetaMin);
+      // Find the optimal angle that minimizes stress concentration
+      theta = findOptimalAngle(W, clampedL);
       // Update the angle slider to show the computed value
       const angleDeg = Math.round(theta * 180 / Math.PI);
       els.baseAngle.value = angleDeg;
@@ -1093,7 +1136,7 @@
 
     // Warning for invalid length
     if (L < minLength) {
-      els.warning.innerHTML = `<strong>Warning:</strong> Arch length must be greater than base width. Min: ${minLength.toFixed(1)} ft.`;
+      els.warning.innerHTML = `<strong>Warning:</strong> Arch length must be at least equal to base width. Min: ${minLength.toFixed(1)} ft.`;
       els.warning.classList.add('visible');
     } else if (L > maxLength) {
       els.warning.innerHTML = `<strong>Warning:</strong> Arch length too long for smooth curve. Max: ${maxLength.toFixed(1)} ft.`;
@@ -1308,6 +1351,31 @@
   }
 
   /**
+   * Update arch length min/max based on current width
+   */
+  function updateArchLengthConstraints() {
+    const W = parseFloat(els.width.value) || 10;
+    const minL = W;
+    const maxL = W * 3.0;
+
+    // Update slider and input constraints
+    els.archLengthSlider.min = minL;
+    els.archLength.min = minL;
+    els.archLengthSlider.max = maxL;
+    els.archLength.max = maxL;
+
+    // Clamp current value if needed
+    const currentL = parseFloat(els.archLength.value);
+    if (currentL < minL) {
+      els.archLength.value = minL;
+      els.archLengthSlider.value = minL;
+    } else if (currentL > maxL) {
+      els.archLength.value = maxL;
+      els.archLengthSlider.value = maxL;
+    }
+  }
+
+  /**
    * Initialize event listeners
    */
   function init() {
@@ -1315,6 +1383,12 @@
     syncSliderAndInput(els.widthSlider, els.width);
     syncSliderAndInput(els.archLengthSlider, els.archLength);
     syncSliderAndInput(els.baseAngleSlider, els.baseAngle);
+
+    // Update arch length constraints when width changes
+    els.widthSlider.addEventListener('input', updateArchLengthConstraints);
+    els.width.addEventListener('input', updateArchLengthConstraints);
+    // Initialize constraints on load
+    updateArchLengthConstraints();
 
     // Auto angle toggle - disable/enable angle slider
     els.autoAngle.addEventListener('change', () => {

@@ -738,15 +738,15 @@
     const n = CURVE_SAMPLES;
     const segLen = L / n;
 
-    // Initialize with a circular arc
+    // Initialize with a shape that respects the base angle
     const points = [];
     for (let i = 0; i <= n; i++) {
       const t = i / n;
-      // Start with shape based on theta0
-      const angle = theta0 + t * (Math.PI - 2 * theta0);
+      // Start with shape based on theta0 - use the angle to influence initial y
       const progress = Math.sin(Math.PI * t);  // 0 -> 1 -> 0
       const x = -W/2 + t * W;
-      const y = progress * L * 0.3;  // Initial height guess
+      // Height scales with the base angle - steeper angle = taller arch
+      const y = progress * L * Math.sin(theta0) * 0.5;
       points.push({ x, y });
     }
 
@@ -766,7 +766,8 @@
       }
 
       // Move interior points to minimize bending energy
-      for (let i = 1; i < n; i++) {
+      // Skip points[1] and points[n-1] as they are constrained by the base angle
+      for (let i = 2; i < n - 1; i++) {
         const prev = points[i-1];
         const curr = points[i];
         const next = points[i+1];
@@ -812,17 +813,16 @@
       points[n] = { x: W/2, y: 0 };
 
       // Enforce base angle by adjusting first and last interior points
-      if (iter < 100) {
-        const d = segLen;
-        points[1] = {
-          x: -W/2 + d * Math.cos(theta0),
-          y: d * Math.sin(theta0)
-        };
-        points[n-1] = {
-          x: W/2 - d * Math.cos(theta0),
-          y: d * Math.sin(theta0)
-        };
-      }
+      // This must happen every iteration to maintain the desired angle
+      const d = segLen;
+      points[1] = {
+        x: -W/2 + d * Math.cos(theta0),
+        y: d * Math.sin(theta0)
+      };
+      points[n-1] = {
+        x: W/2 - d * Math.cos(theta0),
+        y: d * Math.sin(theta0)
+      };
     }
 
     return points;

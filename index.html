@@ -347,6 +347,13 @@
           <span class="toggle-slider"></span>
         </label>
       </div>
+      <div class="slider-field">
+        <label for="straightLegDistance">Straight leg distance (ft)</label>
+        <div class="slider-row">
+          <input type="range" id="straightLegDistanceSlider" value="5" min="0" max="15" step="0.1">
+          <input type="number" id="straightLegDistance" value="5" min="0" max="15" step="0.1">
+        </div>
+      </div>
       <div class="note" style="margin-top: 14px;">
         <strong>How it works:</strong> Uses a <em>battered wall</em> curve model—straighter sides that slope inward like a fortification wall, with a smooth curved top. This creates a visually striking shape that is wider at the base. With auto-angle on, the base angle is optimized for even stress distribution. Turn it off to manually set the pivot angle.
       </div>
@@ -481,6 +488,8 @@
     baseAngle: $('baseAngle'),
     baseAngleSlider: $('baseAngleSlider'),
     autoAngle: $('autoAngle'),
+    straightLegDistance: $('straightLegDistance'),
+    straightLegDistanceSlider: $('straightLegDistanceSlider'),
     stickLength: $('stickLength'),
     cutStrategy: $('cutStrategy'),
     ledLength: $('ledLength'),
@@ -738,25 +747,32 @@
    * @param {number} W - Width at ground (distance between anchors)
    * @param {number} L - Total arc length
    * @param {number} theta0 - Base angle in radians (angle at anchors from horizontal)
+   * @param {number} straightLegDist - Length of each straight leg section (in feet)
    */
-  function generateBatteredWallCurve(W, L, theta0) {
+  function generateBatteredWallCurve(W, L, theta0, straightLegDist) {
     const n = CURVE_SAMPLES;
 
     // For a battered wall, we want relatively straight sides with a curved top
-    // straightRatio: what fraction of each half of the curve is straight (0.5-0.8 typical)
-    const straightRatio = 0.65;
+    // straightLegDist: arc length of each straight leg section
+    // Default to 65% of each half if not specified
+    const straightLen = straightLegDist !== undefined ? straightLegDist : (L * 0.65) / 2;
+
+    // Clamp to valid range: 0 to 40% of total arc per side
+    const maxStraightLen = L * 0.4;
+    const clampedStraightLen = Math.max(0, Math.min(straightLen, maxStraightLen));
 
     // Total arc is divided into:
-    // - Left straight: straightRatio * L/2
-    // - Top curve: L * (1 - straightRatio)
-    // - Right straight: straightRatio * L/2
+    // - Left straight: clampedStraightLen
+    // - Top curve: L - 2 * clampedStraightLen
+    // - Right straight: clampedStraightLen
 
-    const straightLen = (L * straightRatio) / 2;  // Length of each straight side
-    const curveLen = L * (1 - straightRatio);     // Length of top curve
+    // Calculate the ratio for sample distribution
+    const straightRatio = (2 * clampedStraightLen) / L;
+    const curveLen = L - 2 * clampedStraightLen;   // Length of top curve
 
     // Straight sides go at angle theta0
-    const dxStraight = straightLen * Math.cos(theta0);
-    const dyStraight = straightLen * Math.sin(theta0);
+    const dxStraight = clampedStraightLen * Math.cos(theta0);
+    const dyStraight = clampedStraightLen * Math.sin(theta0);
 
     // Points where straight sections end (top of the walls)
     const leftTop = { x: -W/2 + dxStraight, y: dyStraight };
@@ -988,7 +1004,7 @@
    * Uses golden section search to find the angle that distributes
    * curvature most evenly along the arch.
    */
-  function findOptimalAngle(W, L) {
+  function findOptimalAngle(W, L, straightLegDist) {
     const phi = (1 + Math.sqrt(5)) / 2;  // Golden ratio
 
     // Angle bounds in radians (15° to 85°)
@@ -1000,7 +1016,7 @@
 
     // Function to evaluate: stress concentration for a given angle
     function evaluate(theta) {
-      const curve = generateBatteredWallCurve(W, L, theta);
+      const curve = generateBatteredWallCurve(W, L, theta, straightLegDist);
       const curvatures = calculateCurvature(curve.points);
       return calculateConcentration(curvatures);
     }
@@ -1184,6 +1200,7 @@
   function render() {
     const W = parseFloat(els.width.value) || 10;
     const L = parseFloat(els.archLength.value) || 16;
+    const straightLegDist = parseFloat(els.straightLegDistance.value) || 5;
     const stickLen = parseFloat(els.stickLength.value) || 10;
     const cutStrategy = els.cutStrategy.value;
     const ledLen = parseFloat(els.ledLength.value) || 16.4;
@@ -1199,7 +1216,7 @@
     let theta;
     if (els.autoAngle.checked) {
       // Find the optimal angle that minimizes stress concentration
-      theta = findOptimalAngle(W, clampedL);
+      theta = findOptimalAngle(W, clampedL, straightLegDist);
       // Update the angle slider to show the computed value
       const angleDeg = Math.round(theta * 180 / Math.PI);
       els.baseAngle.value = angleDeg;
@@ -1210,7 +1227,7 @@
     }
 
     // Generate battered wall curve (straighter sides, curved top)
-    const curve = generateBatteredWallCurve(W, clampedL, theta);
+    const curve = generateBatteredWallCurve(W, clampedL, theta, straightLegDist);
     const length = calculateArcLength(curve.points);
     const height = getApexHeight(curve.points);
     const baseAngleRad = theta;
@@ -1474,6 +1491,29 @@
       els.archLength.value = maxL;
       els.archLengthSlider.value = maxL;
     }
+
+    // Also update straight leg distance constraints
+    updateStraightLegConstraints();
+  }
+
+  /**
+   * Update straight leg distance min/max based on current arch length
+   */
+  function updateStraightLegConstraints() {
+    const L = parseFloat(els.archLength.value) || 16;
+    // Max straight leg is 40% of arch length (each side), leaving 20% for curve
+    const maxStraightLeg = L * 0.4;
+
+    // Update slider and input constraints
+    els.straightLegDistanceSlider.max = maxStraightLeg.toFixed(1);
+    els.straightLegDistance.max = maxStraightLeg.toFixed(1);
+
+    // Clamp current value if needed
+    const currentDist = parseFloat(els.straightLegDistance.value);
+    if (currentDist > maxStraightLeg) {
+      els.straightLegDistance.value = maxStraightLeg.toFixed(1);
+      els.straightLegDistanceSlider.value = maxStraightLeg.toFixed(1);
+    }
   }
 
   /**
@@ -1484,10 +1524,14 @@
     syncSliderAndInput(els.widthSlider, els.width);
     syncSliderAndInput(els.archLengthSlider, els.archLength);
     syncSliderAndInput(els.baseAngleSlider, els.baseAngle);
+    syncSliderAndInput(els.straightLegDistanceSlider, els.straightLegDistance);
 
     // Update arch length constraints when width changes
     els.widthSlider.addEventListener('input', updateArchLengthConstraints);
     els.width.addEventListener('input', updateArchLengthConstraints);
+    // Update straight leg constraints when arch length changes
+    els.archLengthSlider.addEventListener('input', updateStraightLegConstraints);
+    els.archLength.addEventListener('input', updateStraightLegConstraints);
     // Initialize constraints on load
     updateArchLengthConstraints();
 

@@ -502,27 +502,35 @@
   ];
 
   /**
-   * Generate cubic Bezier curve for smooth arch (no loops)
+   * Generate cubic Bezier curve with hinged/pivoting ends
    *
    * Physics model:
-   * - Flexible tube pinned at both ends
-   * - Control points positioned to create smooth, loop-free arch
-   * - Control height (dy) determines the arc length and shape
+   * - Flexible tube pinned at both ends with pivot anchors
+   * - Ends can rotate inward at angle theta from horizontal
+   * - Shorter arch = shallower angle, longer arch = steeper angle
    *
    * @param {number} W - Width at ground (distance between anchors)
-   * @param {number} dy - Control point height (determines curve shape)
+   * @param {number} theta - Base angle in radians (from horizontal)
+   * @param {number} d - Control point distance from anchor
    */
-  function generateBezierCurve(W, dy) {
+  function generateBezierCurve(W, theta, d) {
     const points = [];
 
     // Anchor points at ground level
     const P0 = { x: -W / 2, y: 0 };
     const P3 = { x: W / 2, y: 0 };
 
-    // Control points - directly above anchors for smooth arch
-    // This ensures no loops can occur
-    const P1 = { x: -W / 2, y: dy };
-    const P2 = { x: W / 2, y: dy };
+    // Control points - angled inward from anchors
+    // Left control point: rises at angle theta
+    const P1 = {
+      x: P0.x + d * Math.cos(theta),
+      y: P0.y + d * Math.sin(theta)
+    };
+    // Right control point: mirrors left (rises at angle theta from right)
+    const P2 = {
+      x: P3.x - d * Math.cos(theta),
+      y: P3.y + d * Math.sin(theta)
+    };
 
     for (let i = 0; i <= CURVE_SAMPLES; i++) {
       const t = i / CURVE_SAMPLES;
@@ -539,7 +547,7 @@
       });
     }
 
-    return { points, P0, P1, P2, P3, dy };
+    return { points, P0, P1, P2, P3, theta, d };
   }
 
   /**
@@ -597,56 +605,55 @@
   }
 
   /**
-   * Solve for control height (dy) to achieve target arc length
-   * Uses binary search to find dy that produces the desired length.
+   * Solve for the arch shape given width and target arc length.
+   *
+   * The angle theta is derived from the length-to-width ratio:
+   * - Short arch (L close to W) = shallow angle
+   * - Long arch (L much greater than W) = steep angle
+   *
+   * The control point distance d is then computed to achieve the exact arc length.
+   * A constraint prevents loops: control points must not cross the center.
    */
-  function solveForDy(W, targetLength) {
-    // Minimum dy for very flat arch
-    let lo = 0.01;
-    // Maximum dy (very tall arch)
-    let hi = W * 2;
+  function solveForShape(W, targetLength) {
+    // Clamp length to valid range
+    const minLen = W * 1.02;
+    const maxLen = W * 2.2;
+    const L = Math.max(minLen, Math.min(maxLen, targetLength));
+
+    // Compute angle from length ratio
+    // As L/W increases, angle increases
+    const ratio = (L - minLen) / (maxLen - minLen);
+
+    // Angle ranges from ~20° (shallow) to ~80° (steep)
+    const thetaMin = 20 * Math.PI / 180;
+    const thetaMax = 80 * Math.PI / 180;
+    const theta = thetaMin + ratio * (thetaMax - thetaMin);
+
+    // Maximum d to prevent loops: P1.x must stay < 0
+    // P1.x = -W/2 + d*cos(theta) < 0
+    // d < W / (2*cos(theta))
+    const maxD = (W / (2 * Math.cos(theta))) * 0.95;
+
+    // Binary search for d that gives target arc length
+    let lo = 0.1;
+    let hi = Math.min(maxD, W * 2);
 
     for (let iter = 0; iter < 50; iter++) {
       const mid = (lo + hi) / 2;
-      const { points } = generateBezierCurve(W, mid);
+      const { points } = generateBezierCurve(W, theta, mid);
       const len = calculateArcLength(points);
 
-      if (Math.abs(len - targetLength) < 0.001) break;
+      if (Math.abs(len - L) < 0.001) break;
 
-      if (len < targetLength) {
-        lo = mid;  // Need higher dy for longer arc
+      if (len < L) {
+        lo = mid;  // Need larger d for longer arc
       } else {
-        hi = mid;  // Need lower dy for shorter arc
+        hi = mid;  // Need smaller d for shorter arc
       }
     }
 
-    return (lo + hi) / 2;
-  }
-
-  /**
-   * Calculate the base angle from the curve tangent
-   * This is the angle the tube makes with the horizontal at the anchor point.
-   * For a Bezier with control points directly above anchors, the tangent
-   * at t=0 points from P0 toward P1.
-   */
-  function calculateBaseAngle(W, dy) {
-    // Tangent at t=0 is 3*(P1 - P0) = 3*(0, dy) for our setup
-    // So the tangent is purely vertical, giving 90 degrees
-    // But for display, we want the "effective" angle based on how
-    // steep the curve rises. We'll measure from the first few points.
-    const { points } = generateBezierCurve(W, dy);
-
-    // Sample the tangent from the first segment
-    // Use a point slightly along the curve for a more meaningful angle
-    const p0 = points[0];
-    const p1 = points[Math.min(10, points.length - 1)];  // ~5% along curve
-
-    const dx = p1.x - p0.x;
-    const ddy = p1.y - p0.y;
-
-    // Angle from horizontal
-    const angle = Math.atan2(ddy, Math.abs(dx));
-    return angle;
+    const d = (lo + hi) / 2;
+    return { theta, d };
   }
 
   /**
@@ -757,15 +764,15 @@
 
     // Validate: arch length must be greater than base width
     const minLength = W * 1.02;
-    const maxLength = W * 2.5;  // Reasonable maximum for smooth arch
+    const maxLength = W * 2.2;  // Reasonable maximum for smooth arch
     const clampedL = Math.max(minLength, Math.min(maxLength, L));
 
-    // Solve for the control height that gives the target arc length
-    const dy = solveForDy(W, clampedL);
-    const curve = generateBezierCurve(W, dy);
+    // Solve for the shape (theta and d) that gives the target arc length
+    const { theta, d } = solveForShape(W, clampedL);
+    const curve = generateBezierCurve(W, theta, d);
     const length = calculateArcLength(curve.points);
     const height = getApexHeight(curve.points);
-    const baseAngleRad = calculateBaseAngle(W, dy);
+    const baseAngleRad = theta;
     const baseAngleDeg = baseAngleRad * (180 / Math.PI);
 
     const curvatures = calculateCurvature(curve.points);
@@ -789,10 +796,10 @@
 
     // Warning for invalid length
     if (L < minLength) {
-      els.warning.innerHTML = `<strong>Warning:</strong> Arch length must be greater than base width (${W} ft). Using minimum length.`;
+      els.warning.innerHTML = `<strong>Warning:</strong> Arch length must be greater than base width. Min: ${minLength.toFixed(1)} ft.`;
       els.warning.classList.add('visible');
     } else if (L > maxLength) {
-      els.warning.innerHTML = `<strong>Warning:</strong> Arch length too long for this width. Maximum is ~${maxLength.toFixed(1)} ft. Using maximum.`;
+      els.warning.innerHTML = `<strong>Warning:</strong> Arch length too long for smooth curve. Max: ${maxLength.toFixed(1)} ft.`;
       els.warning.classList.add('visible');
     } else {
       els.warning.classList.remove('visible');

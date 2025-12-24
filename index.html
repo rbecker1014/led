@@ -271,43 +271,24 @@
   <!-- Control Panel -->
   <div class="panel">
     <h1>LED Arch Calculator</h1>
-    <p class="subtitle">Design and visualize a flexible PEX tubing LED arch optimized for semicircular shape</p>
+    <p class="subtitle">Design a flexible PEX tubing LED arch with pivoting base anchors</p>
 
-    <!-- Arch Dimensions -->
+    <!-- INPUTS Section -->
     <div class="section">
-      <div class="section-title">Arch Dimensions</div>
+      <div class="section-title">📥 Inputs</div>
       <div class="row">
         <div class="field">
-          <label for="width">Width at ground (ft)</label>
+          <label for="width">Base width (ft)</label>
           <input type="number" id="width" value="10" min="1" max="30" step="0.1">
         </div>
         <div class="field">
-          <label for="height">Apex height (ft)</label>
-          <input type="number" id="height" value="7" min="1" max="20" step="0.1">
+          <label for="archLength">Arch length (ft)</label>
+          <input type="number" id="archLength" value="16" min="1" max="50" step="0.1">
         </div>
       </div>
       <div class="note" style="margin-top: 14px;">
-        <strong>Optimal semicircle:</strong> Shape uses vertical tangents at base with control height = 4H/3 for the best circular arc approximation.
+        <strong>How it works:</strong> Set the distance between the base anchors and the total tubing length. The arch shape, height, and base angle are computed automatically.
       </div>
-    </div>
-
-    <!-- Solving Mode -->
-    <div class="section">
-      <div class="section-title">Solving Mode</div>
-      <div class="toggle-row">
-        <span class="toggle-label">Auto-compute length</span>
-        <label class="toggle">
-          <input type="checkbox" id="preferSmooth" checked>
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      <div class="field" style="margin-top: 12px;">
-        <label for="fixedLength">Fixed tubing length (ft)</label>
-        <input type="number" id="fixedLength" placeholder="Auto-computed" min="5" max="50" step="0.1" disabled>
-      </div>
-      <p class="note" id="modeNote">
-        <strong>Optimal shape:</strong> Uses the best semicircle approximation (uniform curvature). Tubing length is computed automatically.
-      </p>
     </div>
 
     <!-- Tubing & Cuts -->
@@ -350,13 +331,13 @@
       </div>
     </div>
 
-    <!-- Results -->
+    <!-- DERIVED Section -->
     <div class="section">
-      <div class="section-title">Calculated Results</div>
+      <div class="section-title">📤 Derived Values</div>
       <div class="results-grid">
         <div class="result-item">
-          <div class="result-label">Tubing length</div>
-          <div class="result-value" id="resultLength">—</div>
+          <div class="result-label">Apex height</div>
+          <div class="result-value" id="resultHeight">—</div>
         </div>
         <div class="result-item">
           <div class="result-label">Base angle</div>
@@ -418,8 +399,8 @@
         <span>Join point</span>
       </div>
       <div class="legend-item">
-        <div class="legend-dot" style="background: #fbbf24;"></div>
-        <span>LED coverage</span>
+        <div class="legend-line" style="background: #fbbf24; height: 2px;"></div>
+        <span>Base angle</span>
       </div>
     </div>
   </div>
@@ -433,19 +414,16 @@
   const $ = id => document.getElementById(id);
   const els = {
     width: $('width'),
-    height: $('height'),
-    preferSmooth: $('preferSmooth'),
-    fixedLength: $('fixedLength'),
+    archLength: $('archLength'),
     stickLength: $('stickLength'),
     cutStrategy: $('cutStrategy'),
     ledLength: $('ledLength'),
     ledCount: $('ledCount'),
     blinkMode: $('blinkMode'),
-    modeNote: $('modeNote'),
     warning: $('warning'),
     svg: $('svg'),
     archGroup: $('archGroup'),
-    resultLength: $('resultLength'),
+    resultHeight: $('resultHeight'),
     resultAngle: $('resultAngle'),
     resultCurvature: $('resultCurvature'),
     resultLedFit: $('resultLedFit'),
@@ -478,36 +456,38 @@
   ];
 
   /**
-   * Generate cubic Bezier curve points for optimal semicircle approximation
+   * Generate cubic Bezier curve with pivoting ends
    *
-   * Physics assumptions:
-   * - Uniform rigidity across the LED strip
-   * - Pinned ends (can rotate freely, not clamped)
-   * - Shape optimized to be as close to a semicircle/semi-ellipse as possible
+   * Physics model:
+   * - Flexible tube pinned at both ends
+   * - Ends can pivot freely (not clamped)
+   * - Base angle θ (from horizontal) determines the shape
+   * - Control point distance 'd' scales the curve
    *
-   * For optimal semicircle approximation with a cubic Bezier:
-   * - dx = 0: control points directly above endpoints (vertical tangent at base)
-   * - dy = 4H/3: standard formula for circular arc Bezier approximation
+   * The curve is symmetric: left end angles up at θ, right end angles up at (180-θ)
    *
-   * This gives the most uniform curvature distribution possible with a single Bezier.
-   *
-   * @param {number} W - Width at ground
-   * @param {number} H - Apex height
-   * @param {number} dyOverride - Override for vertical control point (used in length-first mode)
+   * @param {number} W - Width at ground (distance between anchors)
+   * @param {number} theta - Base angle in radians (from horizontal, 0=flat, π/2=vertical)
+   * @param {number} d - Control point distance from anchor
    */
-  function generateBezierCurve(W, H, dyOverride = null) {
-    // Optimal semicircle approximation:
-    // dx = 0 gives vertical tangent at the base (like a true semicircle)
-    // dy = 4H/3 is the standard Bezier approximation for circular arcs
-    // This ensures the curve passes through (0, H) at t=0.5
-    const dx = 0;
-    const dy = dyOverride !== null ? dyOverride : (4 * H / 3);
-
+  function generateBezierCurve(W, theta, d) {
     const points = [];
+
+    // Anchor points at ground level
     const P0 = { x: -W / 2, y: 0 };
-    const P1 = { x: -W / 2 + dx, y: dy };  // Directly above P0
-    const P2 = { x: W / 2 - dx, y: dy };   // Directly above P3
     const P3 = { x: W / 2, y: 0 };
+
+    // Control points - angled from anchors
+    // Left control point: up and to the right at angle theta
+    const P1 = {
+      x: P0.x + d * Math.cos(theta),
+      y: P0.y + d * Math.sin(theta)
+    };
+    // Right control point: up and to the left at angle (π - theta)
+    const P2 = {
+      x: P3.x - d * Math.cos(theta),
+      y: P3.y + d * Math.sin(theta)
+    };
 
     for (let i = 0; i <= CURVE_SAMPLES; i++) {
       const t = i / CURVE_SAMPLES;
@@ -524,7 +504,7 @@
       });
     }
 
-    return { points, P0, P1, P2, P3, dx, dy };
+    return { points, P0, P1, P2, P3, theta, d };
   }
 
   /**
@@ -582,26 +562,24 @@
   }
 
   /**
-   * Solve for dy (control point height) to achieve target length (length-first mode)
-   * Uses binary search to find the dy value that produces the desired arc length.
+   * For a given angle theta, find control point distance d that gives target arc length
    */
-  function solveForLength(W, H, targetLength) {
-    // Search for dy that gives the target arc length
-    // dy range: from H (flat curve) to 3*H (very tall curve)
-    let lo = H;
-    let hi = 3 * H;
+  function findDistanceForLength(W, theta, targetLength) {
+    // Binary search for d
+    let lo = 0.1;
+    let hi = W * 3;
 
     for (let iter = 0; iter < 50; iter++) {
       const mid = (lo + hi) / 2;
-      const { points } = generateBezierCurve(W, H, mid);
+      const { points } = generateBezierCurve(W, theta, mid);
       const len = calculateArcLength(points);
 
       if (Math.abs(len - targetLength) < 0.001) break;
 
       if (len < targetLength) {
-        lo = mid;  // Need higher dy for longer arc
+        lo = mid;  // Need larger d for longer arc
       } else {
-        hi = mid;  // Need lower dy for shorter arc
+        hi = mid;  // Need smaller d for shorter arc
       }
     }
 
@@ -609,14 +587,76 @@
   }
 
   /**
-   * Calculate base angle at ground (tangent angle)
+   * Solve for angle theta given width W and target arc length L
+   *
+   * Physics: As the arch gets longer relative to width, the angle increases.
+   * - L = W: flat (θ ≈ 0°)
+   * - L = πW/2: semicircle (θ = 90°)
+   *
+   * Uses the "elastica" approximation where we find the angle that produces
+   * the most natural-looking curve for the given length constraint.
    */
-  function calculateBaseAngle(points) {
-    if (points.length < 2) return 0;
-    const p0 = points[0];
-    const p1 = points[1];
-    const angle = Math.atan2(p1.y - p0.y, p1.x - p0.x);
-    return angle * (180 / Math.PI);
+  function solveForAngle(W, targetLength) {
+    // Minimum length is the base width (straight line)
+    const minLen = W;
+    // Maximum practical length (semicircle would be π*W/2 ≈ 1.57*W)
+    const maxLen = Math.PI * W;
+
+    if (targetLength <= minLen) {
+      return { theta: 0.01, d: W / 2, valid: false };
+    }
+
+    // Ratio determines angle range
+    // As length increases, angle increases
+    const ratio = (targetLength - minLen) / (maxLen - minLen);
+
+    // Angle ranges from near 0 to near 90 degrees
+    // Using a curve that matches physical behavior
+    const thetaMin = 0.05;  // ~3 degrees
+    const thetaMax = Math.PI / 2 - 0.05;  // ~87 degrees
+
+    // Binary search for theta that gives a valid curve with target length
+    let lo = thetaMin;
+    let hi = thetaMax;
+    let bestTheta = lo + ratio * (hi - lo);
+    let bestD = W / 2;
+
+    // Iterate to find the best theta
+    for (let iter = 0; iter < 30; iter++) {
+      const mid = (lo + hi) / 2;
+
+      // For this theta, find d that gives target length
+      const d = findDistanceForLength(W, mid, targetLength);
+      const { points } = generateBezierCurve(W, mid, d);
+      const len = calculateArcLength(points);
+      const height = Math.max(...points.map(p => p.y));
+
+      // Check if curve is valid (positive height, reasonable shape)
+      if (height > 0 && len > 0) {
+        bestTheta = mid;
+        bestD = d;
+
+        if (Math.abs(len - targetLength) < 0.01) break;
+
+        // Adjust search based on length error
+        if (len < targetLength) {
+          lo = mid;
+        } else {
+          hi = mid;
+        }
+      } else {
+        hi = mid;
+      }
+    }
+
+    return { theta: bestTheta, d: bestD, valid: true };
+  }
+
+  /**
+   * Get the apex height from curve points
+   */
+  function getApexHeight(points) {
+    return Math.max(...points.map(p => p.y));
   }
 
   /**
@@ -712,55 +752,33 @@
    */
   function render() {
     const W = parseFloat(els.width.value) || 10;
-    const H = parseFloat(els.height.value) || 7;
-    const smoothFirst = els.preferSmooth.checked;
+    const L = parseFloat(els.archLength.value) || 16;
     const stickLen = parseFloat(els.stickLength.value) || 10;
     const cutStrategy = els.cutStrategy.value;
     const ledLen = parseFloat(els.ledLength.value) || 16.4;
     const ledNum = parseInt(els.ledCount.value) || 300;
 
-    // Generate optimal semicircle curve (dy = 4H/3 for best circular approximation)
-    const baseline = generateBezierCurve(W, H);
-    const baselineLength = calculateArcLength(baseline.points);
-    const baselineCurvatures = calculateCurvature(baseline.points);
-    const baselineConc = calculateConcentration(baselineCurvatures);
+    // Validate: arch length must be greater than base width
+    const minLength = W * 1.01;
+    const maxLength = W * Math.PI * 0.95;  // Just under semicircle
+    const clampedL = Math.max(minLength, Math.min(maxLength, L));
 
-    // Determine actual curve based on mode
-    let curve, length;
-    let curvatureWarning = false;
-
-    if (smoothFirst) {
-      curve = baseline;
-      length = baselineLength;
-    } else {
-      const fixedLen = parseFloat(els.fixedLength.value);
-      if (fixedLen && fixedLen > 0) {
-        const dyOverride = solveForLength(W, H, fixedLen);
-        curve = generateBezierCurve(W, H, dyOverride);
-        length = calculateArcLength(curve.points);
-
-        // Check if curvature increased significantly
-        const newCurvatures = calculateCurvature(curve.points);
-        const newConc = calculateConcentration(newCurvatures);
-        if (newConc > baselineConc * 1.15) {
-          curvatureWarning = true;
-        }
-      } else {
-        curve = baseline;
-        length = baselineLength;
-      }
-    }
+    // Solve for the angle and control point distance given width and length
+    const solution = solveForAngle(W, clampedL);
+    const curve = generateBezierCurve(W, solution.theta, solution.d);
+    const length = calculateArcLength(curve.points);
+    const height = getApexHeight(curve.points);
+    const baseAngleDeg = solution.theta * (180 / Math.PI);
 
     const curvatures = calculateCurvature(curve.points);
     const concentration = calculateConcentration(curvatures);
     const maxCurvature = Math.max(...curvatures);
-    const baseAngle = calculateBaseAngle(curve.points);
     const cutInfo = calculateCuts(length, stickLen, cutStrategy);
     const ledFit = calculateLedFit(length, ledLen);
 
     // Update results
-    els.resultLength.textContent = `${length.toFixed(2)} ft`;
-    els.resultAngle.textContent = `${Math.abs(baseAngle).toFixed(1)}°`;
+    els.resultHeight.textContent = `${height.toFixed(2)} ft`;
+    els.resultAngle.textContent = `${baseAngleDeg.toFixed(1)}°`;
     els.resultCurvature.textContent = `${concentration.toFixed(2)}×`;
     els.resultCurvature.className = 'result-value' + (concentration > 1.5 ? ' warn' : ' success');
 
@@ -771,16 +789,19 @@
     els.resultWaste.textContent = `${cutInfo.waste.toFixed(2)} ft`;
     els.resultWaste.className = 'result-value' + (cutInfo.waste > 2 ? ' warn' : '');
 
-    // Warning
-    if (curvatureWarning) {
-      els.warning.innerHTML = '<strong>Warning:</strong> The specified length causes higher curvature concentration than the natural bend. Consider using the smoothness-first length of ' + baselineLength.toFixed(2) + ' ft.';
+    // Warning for invalid length
+    if (L < minLength) {
+      els.warning.innerHTML = `<strong>Warning:</strong> Arch length must be greater than base width (${W} ft). Using minimum length.`;
+      els.warning.classList.add('visible');
+    } else if (L > maxLength) {
+      els.warning.innerHTML = `<strong>Warning:</strong> Arch length too long for this width. Maximum is ~${maxLength.toFixed(1)} ft. Using maximum.`;
       els.warning.classList.add('visible');
     } else {
       els.warning.classList.remove('visible');
     }
 
     // Calculate SVG scale
-    const maxDim = Math.max(W, H) * 1.3;
+    const maxDim = Math.max(W, height) * 1.3;
     const scale = (SVG_WIDTH - MARGIN * 2) / maxDim;
     const centerX = SVG_WIDTH / 2;
 
@@ -922,15 +943,46 @@
     els.archGroup.appendChild(dimLine);
 
     // Height dimension
-    const apex = toSVG(0, H, scale, centerX);
+    const apex = toSVG(0, height, scale, centerX);
     const heightLine = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     heightLine.innerHTML = `
       <line x1="${leftEnd.x - 25}" y1="${GROUND_Y}" x2="${leftEnd.x - 25}" y2="${apex.y}" stroke="#8b9cb3" stroke-width="1"/>
       <line x1="${leftEnd.x - 30}" y1="${GROUND_Y}" x2="${leftEnd.x - 20}" y2="${GROUND_Y}" stroke="#8b9cb3" stroke-width="1"/>
       <line x1="${leftEnd.x - 30}" y1="${apex.y}" x2="${leftEnd.x - 20}" y2="${apex.y}" stroke="#8b9cb3" stroke-width="1"/>
-      <text x="${leftEnd.x - 35}" y="${(GROUND_Y + apex.y) / 2 + 4}" fill="#8b9cb3" font-size="12" text-anchor="end" font-family="system-ui">${H} ft</text>
+      <text x="${leftEnd.x - 35}" y="${(GROUND_Y + apex.y) / 2 + 4}" fill="#8b9cb3" font-size="12" text-anchor="end" font-family="system-ui">${height.toFixed(1)} ft</text>
     `;
     els.archGroup.appendChild(heightLine);
+
+    // Render base angle arcs on both ends
+    const arcRadius = 40;  // pixels
+    const theta = solution.theta;
+
+    // Left side angle arc
+    const leftAngleGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    // Draw arc from horizontal to the tangent angle
+    const leftArcEndX = leftEnd.x + arcRadius * Math.cos(-theta);  // Note: SVG Y is inverted
+    const leftArcEndY = leftEnd.y - arcRadius * Math.sin(theta);
+    const leftArcPath = `M ${leftEnd.x + arcRadius} ${leftEnd.y} A ${arcRadius} ${arcRadius} 0 0 0 ${leftArcEndX} ${leftArcEndY}`;
+
+    leftAngleGroup.innerHTML = `
+      <path d="${leftArcPath}" fill="none" stroke="#fbbf24" stroke-width="2"/>
+      <line x1="${leftEnd.x}" y1="${leftEnd.y}" x2="${leftEnd.x + arcRadius + 10}" y2="${leftEnd.y}" stroke="#fbbf24" stroke-width="1" stroke-dasharray="4,2"/>
+      <text x="${leftEnd.x + arcRadius + 5}" y="${leftEnd.y - 15}" fill="#fbbf24" font-size="11" font-family="system-ui">${baseAngleDeg.toFixed(0)}°</text>
+    `;
+    els.archGroup.appendChild(leftAngleGroup);
+
+    // Right side angle arc (mirrored)
+    const rightAngleGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const rightArcEndX = rightEnd.x - arcRadius * Math.cos(-theta);
+    const rightArcEndY = rightEnd.y - arcRadius * Math.sin(theta);
+    const rightArcPath = `M ${rightEnd.x - arcRadius} ${rightEnd.y} A ${arcRadius} ${arcRadius} 0 0 1 ${rightArcEndX} ${rightArcEndY}`;
+
+    rightAngleGroup.innerHTML = `
+      <path d="${rightArcPath}" fill="none" stroke="#fbbf24" stroke-width="2"/>
+      <line x1="${rightEnd.x}" y1="${rightEnd.y}" x2="${rightEnd.x - arcRadius - 10}" y2="${rightEnd.y}" stroke="#fbbf24" stroke-width="1" stroke-dasharray="4,2"/>
+      <text x="${rightEnd.x - arcRadius - 25}" y="${rightEnd.y - 15}" fill="#fbbf24" font-size="11" font-family="system-ui">${baseAngleDeg.toFixed(0)}°</text>
+    `;
+    els.archGroup.appendChild(rightAngleGroup);
   }
 
   /**
@@ -946,23 +998,13 @@
   function init() {
     // Input listeners
     const inputs = [
-      els.width, els.height, els.fixedLength,
+      els.width, els.archLength,
       els.stickLength, els.cutStrategy,
       els.ledLength, els.ledCount
     ];
 
     inputs.forEach(el => {
       el.addEventListener('input', render);
-    });
-
-    // Mode toggle
-    els.preferSmooth.addEventListener('change', () => {
-      const smooth = els.preferSmooth.checked;
-      els.fixedLength.disabled = smooth;
-      els.modeNote.innerHTML = smooth
-        ? '<strong>Optimal shape:</strong> Uses the best semicircle approximation (uniform curvature). Tubing length is computed automatically.'
-        : '<strong>Fixed length:</strong> Specify tubing length. Shape adjusts to match, maintaining vertical tangents at base.';
-      render();
     });
 
     // Viz control buttons

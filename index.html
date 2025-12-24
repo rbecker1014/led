@@ -960,7 +960,7 @@
 
     // Render base angle arcs on both ends
     const arcRadius = 40;  // pixels
-    const theta = baseAngleRad;
+    // theta is already in scope from solveForShape() destructuring
 
     // Left side angle arc
     const leftAngleGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');

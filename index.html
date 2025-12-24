@@ -101,6 +101,46 @@
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
 
+    /* Slider styling */
+    .slider-field {
+      margin-bottom: 14px;
+    }
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .slider-row input[type="range"] {
+      flex: 1;
+      height: 6px;
+      border-radius: 3px;
+      background: rgba(255,255,255,0.1);
+      -webkit-appearance: none;
+      appearance: none;
+      cursor: pointer;
+    }
+    .slider-row input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      border: 2px solid rgba(255,255,255,0.2);
+    }
+    .slider-row input[type="range"]::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      border: 2px solid rgba(255,255,255,0.2);
+    }
+    .slider-row input[type="number"] {
+      width: 70px;
+      flex-shrink: 0;
+    }
+
     /* Toggle switch */
     .toggle-row {
       display: flex;
@@ -276,18 +316,22 @@
     <!-- INPUTS Section -->
     <div class="section">
       <div class="section-title">📥 Inputs</div>
-      <div class="row">
-        <div class="field">
-          <label for="width">Base width (ft)</label>
-          <input type="number" id="width" value="10" min="1" max="30" step="0.1">
+      <div class="slider-field">
+        <label for="width">Base width (ft)</label>
+        <div class="slider-row">
+          <input type="range" id="widthSlider" value="10" min="3" max="20" step="0.5">
+          <input type="number" id="width" value="10" min="3" max="20" step="0.5">
         </div>
-        <div class="field">
-          <label for="archLength">Arch length (ft)</label>
-          <input type="number" id="archLength" value="16" min="1" max="50" step="0.1">
+      </div>
+      <div class="slider-field">
+        <label for="archLength">Arch length (ft)</label>
+        <div class="slider-row">
+          <input type="range" id="archLengthSlider" value="16" min="4" max="40" step="0.5">
+          <input type="number" id="archLength" value="16" min="4" max="40" step="0.5">
         </div>
       </div>
       <div class="note" style="margin-top: 14px;">
-        <strong>How it works:</strong> Set the distance between the base anchors and the total tubing length. The arch shape, height, and base angle are computed automatically.
+        <strong>How it works:</strong> Set the distance between the base anchors and the total tubing length. The arch shape, height, and base angle are computed automatically. Shorter tubing = shallower angle.
       </div>
     </div>
 
@@ -414,7 +458,9 @@
   const $ = id => document.getElementById(id);
   const els = {
     width: $('width'),
+    widthSlider: $('widthSlider'),
     archLength: $('archLength'),
+    archLengthSlider: $('archLengthSlider'),
     stickLength: $('stickLength'),
     cutStrategy: $('cutStrategy'),
     ledLength: $('ledLength'),
@@ -456,38 +502,27 @@
   ];
 
   /**
-   * Generate cubic Bezier curve with pivoting ends
+   * Generate cubic Bezier curve for smooth arch (no loops)
    *
    * Physics model:
    * - Flexible tube pinned at both ends
-   * - Ends can pivot freely (not clamped)
-   * - Base angle θ (from horizontal) determines the shape
-   * - Control point distance 'd' scales the curve
-   *
-   * The curve is symmetric: left end angles up at θ, right end angles up at (180-θ)
+   * - Control points positioned to create smooth, loop-free arch
+   * - Control height (dy) determines the arc length and shape
    *
    * @param {number} W - Width at ground (distance between anchors)
-   * @param {number} theta - Base angle in radians (from horizontal, 0=flat, π/2=vertical)
-   * @param {number} d - Control point distance from anchor
+   * @param {number} dy - Control point height (determines curve shape)
    */
-  function generateBezierCurve(W, theta, d) {
+  function generateBezierCurve(W, dy) {
     const points = [];
 
     // Anchor points at ground level
     const P0 = { x: -W / 2, y: 0 };
     const P3 = { x: W / 2, y: 0 };
 
-    // Control points - angled from anchors
-    // Left control point: up and to the right at angle theta
-    const P1 = {
-      x: P0.x + d * Math.cos(theta),
-      y: P0.y + d * Math.sin(theta)
-    };
-    // Right control point: up and to the left at angle (π - theta)
-    const P2 = {
-      x: P3.x - d * Math.cos(theta),
-      y: P3.y + d * Math.sin(theta)
-    };
+    // Control points - directly above anchors for smooth arch
+    // This ensures no loops can occur
+    const P1 = { x: -W / 2, y: dy };
+    const P2 = { x: W / 2, y: dy };
 
     for (let i = 0; i <= CURVE_SAMPLES; i++) {
       const t = i / CURVE_SAMPLES;
@@ -504,7 +539,7 @@
       });
     }
 
-    return { points, P0, P1, P2, P3, theta, d };
+    return { points, P0, P1, P2, P3, dy };
   }
 
   /**
@@ -562,24 +597,26 @@
   }
 
   /**
-   * For a given angle theta, find control point distance d that gives target arc length
+   * Solve for control height (dy) to achieve target arc length
+   * Uses binary search to find dy that produces the desired length.
    */
-  function findDistanceForLength(W, theta, targetLength) {
-    // Binary search for d
-    let lo = 0.1;
-    let hi = W * 3;
+  function solveForDy(W, targetLength) {
+    // Minimum dy for very flat arch
+    let lo = 0.01;
+    // Maximum dy (very tall arch)
+    let hi = W * 2;
 
     for (let iter = 0; iter < 50; iter++) {
       const mid = (lo + hi) / 2;
-      const { points } = generateBezierCurve(W, theta, mid);
+      const { points } = generateBezierCurve(W, mid);
       const len = calculateArcLength(points);
 
       if (Math.abs(len - targetLength) < 0.001) break;
 
       if (len < targetLength) {
-        lo = mid;  // Need larger d for longer arc
+        lo = mid;  // Need higher dy for longer arc
       } else {
-        hi = mid;  // Need smaller d for shorter arc
+        hi = mid;  // Need lower dy for shorter arc
       }
     }
 
@@ -587,69 +624,29 @@
   }
 
   /**
-   * Solve for angle theta given width W and target arc length L
-   *
-   * Physics: As the arch gets longer relative to width, the angle increases.
-   * - L = W: flat (θ ≈ 0°)
-   * - L = πW/2: semicircle (θ = 90°)
-   *
-   * Uses the "elastica" approximation where we find the angle that produces
-   * the most natural-looking curve for the given length constraint.
+   * Calculate the base angle from the curve tangent
+   * This is the angle the tube makes with the horizontal at the anchor point.
+   * For a Bezier with control points directly above anchors, the tangent
+   * at t=0 points from P0 toward P1.
    */
-  function solveForAngle(W, targetLength) {
-    // Minimum length is the base width (straight line)
-    const minLen = W;
-    // Maximum practical length (semicircle would be π*W/2 ≈ 1.57*W)
-    const maxLen = Math.PI * W;
+  function calculateBaseAngle(W, dy) {
+    // Tangent at t=0 is 3*(P1 - P0) = 3*(0, dy) for our setup
+    // So the tangent is purely vertical, giving 90 degrees
+    // But for display, we want the "effective" angle based on how
+    // steep the curve rises. We'll measure from the first few points.
+    const { points } = generateBezierCurve(W, dy);
 
-    if (targetLength <= minLen) {
-      return { theta: 0.01, d: W / 2, valid: false };
-    }
+    // Sample the tangent from the first segment
+    // Use a point slightly along the curve for a more meaningful angle
+    const p0 = points[0];
+    const p1 = points[Math.min(10, points.length - 1)];  // ~5% along curve
 
-    // Ratio determines angle range
-    // As length increases, angle increases
-    const ratio = (targetLength - minLen) / (maxLen - minLen);
+    const dx = p1.x - p0.x;
+    const ddy = p1.y - p0.y;
 
-    // Angle ranges from near 0 to near 90 degrees
-    // Using a curve that matches physical behavior
-    const thetaMin = 0.05;  // ~3 degrees
-    const thetaMax = Math.PI / 2 - 0.05;  // ~87 degrees
-
-    // Binary search for theta that gives a valid curve with target length
-    let lo = thetaMin;
-    let hi = thetaMax;
-    let bestTheta = lo + ratio * (hi - lo);
-    let bestD = W / 2;
-
-    // Iterate to find the best theta
-    for (let iter = 0; iter < 30; iter++) {
-      const mid = (lo + hi) / 2;
-
-      // For this theta, find d that gives target length
-      const d = findDistanceForLength(W, mid, targetLength);
-      const { points } = generateBezierCurve(W, mid, d);
-      const len = calculateArcLength(points);
-      const height = Math.max(...points.map(p => p.y));
-
-      // Check if curve is valid (positive height, reasonable shape)
-      if (height > 0 && len > 0) {
-        bestTheta = mid;
-        bestD = d;
-
-        if (Math.abs(len - targetLength) < 0.01) break;
-
-        // Adjust search based on length error
-        if (len < targetLength) {
-          lo = mid;
-        } else {
-          hi = mid;
-        }
-      } else {
-        hi = mid;
-      }
-    }
-
-    return { theta: bestTheta, d: bestD, valid: true };
+    // Angle from horizontal
+    const angle = Math.atan2(ddy, Math.abs(dx));
+    return angle;
   }
 
   /**
@@ -759,16 +756,17 @@
     const ledNum = parseInt(els.ledCount.value) || 300;
 
     // Validate: arch length must be greater than base width
-    const minLength = W * 1.01;
-    const maxLength = W * Math.PI * 0.95;  // Just under semicircle
+    const minLength = W * 1.02;
+    const maxLength = W * 2.5;  // Reasonable maximum for smooth arch
     const clampedL = Math.max(minLength, Math.min(maxLength, L));
 
-    // Solve for the angle and control point distance given width and length
-    const solution = solveForAngle(W, clampedL);
-    const curve = generateBezierCurve(W, solution.theta, solution.d);
+    // Solve for the control height that gives the target arc length
+    const dy = solveForDy(W, clampedL);
+    const curve = generateBezierCurve(W, dy);
     const length = calculateArcLength(curve.points);
     const height = getApexHeight(curve.points);
-    const baseAngleDeg = solution.theta * (180 / Math.PI);
+    const baseAngleRad = calculateBaseAngle(W, dy);
+    const baseAngleDeg = baseAngleRad * (180 / Math.PI);
 
     const curvatures = calculateCurvature(curve.points);
     const concentration = calculateConcentration(curvatures);
@@ -955,7 +953,7 @@
 
     // Render base angle arcs on both ends
     const arcRadius = 40;  // pixels
-    const theta = solution.theta;
+    const theta = baseAngleRad;
 
     // Left side angle arc
     const leftAngleGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -993,12 +991,29 @@
   }
 
   /**
+   * Sync slider and number input
+   */
+  function syncSliderAndInput(slider, input) {
+    slider.addEventListener('input', () => {
+      input.value = slider.value;
+      render();
+    });
+    input.addEventListener('input', () => {
+      slider.value = input.value;
+      render();
+    });
+  }
+
+  /**
    * Initialize event listeners
    */
   function init() {
-    // Input listeners
+    // Sync sliders with number inputs
+    syncSliderAndInput(els.widthSlider, els.width);
+    syncSliderAndInput(els.archLengthSlider, els.archLength);
+
+    // Other input listeners
     const inputs = [
-      els.width, els.archLength,
       els.stickLength, els.cutStrategy,
       els.ledLength, els.ledCount
     ];

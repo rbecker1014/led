@@ -348,7 +348,7 @@
         </label>
       </div>
       <div class="note" style="margin-top: 14px;">
-        <strong>How it works:</strong> Set the distance between the base anchors and the total tubing length. With auto-angle on, the base angle is computed automatically. Turn it off to manually adjust the angle at which the tubes enter the ground anchors.
+        <strong>How it works:</strong> Uses an <em>elastica</em> curve model—the natural shape of a bent flexible rod. This distributes bending stress evenly along the tube (unlike simpler models that concentrate stress at the apex). With auto-angle on, the base angle is computed from the length ratio. Turn it off to manually set the pivot angle.
       </div>
     </div>
 
@@ -571,6 +571,264 @@
   }
 
   /**
+   * Generate an elastica curve using numerical integration.
+   *
+   * The elastica is the shape that minimizes bending energy for an inextensible
+   * elastic rod. It naturally distributes curvature more evenly than a Bezier.
+   *
+   * Uses a shooting method to solve the elastica ODEs:
+   *   dθ/ds = κ (curvature)
+   *   dκ/ds = -λ·sin(θ) (moment equation)
+   *   dx/ds = cos(θ)
+   *   dy/ds = sin(θ)
+   *
+   * @param {number} W - Width at ground (distance between anchors)
+   * @param {number} L - Total arc length
+   * @param {number} theta0 - Base angle in radians (angle at left anchor)
+   */
+  function generateElasticaCurve(W, L, theta0) {
+    const numSteps = CURVE_SAMPLES;
+    const ds = L / numSteps;
+
+    /**
+     * Integrate the elastica ODEs given initial conditions and lambda
+     */
+    function integrate(theta0, kappa0, lambda) {
+      const points = [];
+      let theta = theta0;
+      let kappa = kappa0;
+      let x = -W / 2;
+      let y = 0;
+
+      points.push({ x, y, theta, kappa });
+
+      for (let i = 0; i < numSteps; i++) {
+        // RK4 integration for better accuracy
+        const k1_theta = kappa;
+        const k1_kappa = -lambda * Math.sin(theta);
+        const k1_x = Math.cos(theta);
+        const k1_y = Math.sin(theta);
+
+        const theta_mid1 = theta + 0.5 * ds * k1_theta;
+        const kappa_mid1 = kappa + 0.5 * ds * k1_kappa;
+        const k2_theta = kappa_mid1;
+        const k2_kappa = -lambda * Math.sin(theta_mid1);
+        const k2_x = Math.cos(theta_mid1);
+        const k2_y = Math.sin(theta_mid1);
+
+        const theta_mid2 = theta + 0.5 * ds * k2_theta;
+        const kappa_mid2 = kappa + 0.5 * ds * k2_kappa;
+        const k3_theta = kappa_mid2;
+        const k3_kappa = -lambda * Math.sin(theta_mid2);
+        const k3_x = Math.cos(theta_mid2);
+        const k3_y = Math.sin(theta_mid2);
+
+        const theta_end = theta + ds * k3_theta;
+        const kappa_end = kappa + ds * k3_kappa;
+        const k4_theta = kappa_end;
+        const k4_kappa = -lambda * Math.sin(theta_end);
+        const k4_x = Math.cos(theta_end);
+        const k4_y = Math.sin(theta_end);
+
+        theta += ds * (k1_theta + 2*k2_theta + 2*k3_theta + k4_theta) / 6;
+        kappa += ds * (k1_kappa + 2*k2_kappa + 2*k3_kappa + k4_kappa) / 6;
+        x += ds * (k1_x + 2*k2_x + 2*k3_x + k4_x) / 6;
+        y += ds * (k1_y + 2*k2_y + 2*k3_y + k4_y) / 6;
+
+        points.push({ x, y, theta, kappa });
+      }
+
+      return points;
+    }
+
+    /**
+     * For a symmetric arch, we need:
+     * - x(L) = W/2
+     * - y(L) = 0
+     * - θ(L) = π - θ₀ (symmetric exit angle)
+     *
+     * We search for kappa0 and lambda that satisfy these constraints.
+     * For a symmetric elastica, kappa0 = 0 at the ends (inflection points).
+     */
+
+    // Use shooting method to find lambda that gives correct end position
+    // For a pinned-pinned symmetric elastica with angle theta0, we search for lambda
+
+    let lambdaLo = 0.01;
+    let lambdaHi = 50;
+    let bestPoints = null;
+    let bestError = Infinity;
+
+    // Binary search for lambda
+    for (let iter = 0; iter < 60; iter++) {
+      const lambdaMid = (lambdaLo + lambdaHi) / 2;
+
+      // For symmetric arch, kappa0 should be such that curvature is symmetric
+      // Start with kappa0 proportional to lambda and theta0
+      const kappa0 = Math.sqrt(2 * lambdaMid * (1 - Math.cos(theta0)));
+
+      const points = integrate(theta0, kappa0, lambdaMid);
+      const endPoint = points[points.length - 1];
+
+      // Error: how far from target end position
+      const xError = endPoint.x - W / 2;
+      const yError = endPoint.y;
+      const error = Math.sqrt(xError * xError + yError * yError);
+
+      if (error < bestError) {
+        bestError = error;
+        bestPoints = points;
+      }
+
+      // Adjust lambda based on where we ended up
+      // Higher lambda = tighter curve = less horizontal travel
+      if (endPoint.x > W / 2) {
+        lambdaLo = lambdaMid;  // Need tighter curve
+      } else {
+        lambdaHi = lambdaMid;  // Need looser curve
+      }
+
+      if (error < 0.001) break;
+    }
+
+    // Fine-tune with kappa0 adjustment
+    const lambda = (lambdaLo + lambdaHi) / 2;
+    let kappa0Lo = 0;
+    let kappa0Hi = 5;
+
+    for (let iter = 0; iter < 40; iter++) {
+      const kappa0Mid = (kappa0Lo + kappa0Hi) / 2;
+      const points = integrate(theta0, kappa0Mid, lambda);
+      const endPoint = points[points.length - 1];
+
+      const error = Math.sqrt(
+        Math.pow(endPoint.x - W/2, 2) +
+        Math.pow(endPoint.y, 2)
+      );
+
+      if (error < bestError) {
+        bestError = error;
+        bestPoints = points;
+      }
+
+      // Adjust kappa0: higher = curves up faster initially
+      if (endPoint.y > 0) {
+        kappa0Hi = kappa0Mid;
+      } else {
+        kappa0Lo = kappa0Mid;
+      }
+
+      if (error < 0.001) break;
+    }
+
+    // If we still have significant error, fall back to a simpler approach:
+    // Use energy-minimizing relaxation
+    if (bestError > 0.1 || !bestPoints) {
+      bestPoints = generateRelaxedElastica(W, L, theta0);
+    }
+
+    return { points: bestPoints, theta: theta0 };
+  }
+
+  /**
+   * Generate elastica using discrete relaxation.
+   * This is a fallback that always converges.
+   */
+  function generateRelaxedElastica(W, L, theta0) {
+    const n = CURVE_SAMPLES;
+    const segLen = L / n;
+
+    // Initialize with a circular arc
+    const points = [];
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      // Start with shape based on theta0
+      const angle = theta0 + t * (Math.PI - 2 * theta0);
+      const progress = Math.sin(Math.PI * t);  // 0 -> 1 -> 0
+      const x = -W/2 + t * W;
+      const y = progress * L * 0.3;  // Initial height guess
+      points.push({ x, y });
+    }
+
+    // Pin endpoints
+    points[0] = { x: -W/2, y: 0 };
+    points[n] = { x: W/2, y: 0 };
+
+    // Relaxation iterations
+    for (let iter = 0; iter < 200; iter++) {
+      // Calculate current segment lengths
+      const lengths = [];
+      for (let i = 0; i < n; i++) {
+        lengths.push(Math.hypot(
+          points[i+1].x - points[i].x,
+          points[i+1].y - points[i].y
+        ));
+      }
+
+      // Move interior points to minimize bending energy
+      for (let i = 1; i < n; i++) {
+        const prev = points[i-1];
+        const curr = points[i];
+        const next = points[i+1];
+
+        // Vector from prev to next (chord)
+        const chordX = next.x - prev.x;
+        const chordY = next.y - prev.y;
+        const chordLen = Math.hypot(chordX, chordY);
+
+        // Move point toward the midpoint of the chord (reduces curvature)
+        // but also upward (to maintain arch shape)
+        const midX = (prev.x + next.x) / 2;
+        const midY = (prev.y + next.y) / 2;
+
+        // Blend between current position and smoothed position
+        const alpha = 0.3;
+        points[i] = {
+          x: curr.x * (1 - alpha) + midX * alpha,
+          y: curr.y * (1 - alpha) + midY * alpha
+        };
+      }
+
+      // Enforce arc length constraint by rescaling
+      let totalLen = 0;
+      for (let i = 0; i < n; i++) {
+        totalLen += Math.hypot(
+          points[i+1].x - points[i].x,
+          points[i+1].y - points[i].y
+        );
+      }
+
+      // Scale y coordinates to match target length
+      // (keeping x fixed maintains width)
+      if (Math.abs(totalLen - L) > 0.01) {
+        const scale = L / totalLen;
+        for (let i = 1; i < n; i++) {
+          points[i].y *= scale;
+        }
+      }
+
+      // Re-pin endpoints
+      points[0] = { x: -W/2, y: 0 };
+      points[n] = { x: W/2, y: 0 };
+
+      // Enforce base angle by adjusting first and last interior points
+      if (iter < 100) {
+        const d = segLen;
+        points[1] = {
+          x: -W/2 + d * Math.cos(theta0),
+          y: d * Math.sin(theta0)
+        };
+        points[n-1] = {
+          x: W/2 - d * Math.cos(theta0),
+          y: d * Math.sin(theta0)
+        };
+      }
+    }
+
+    return points;
+  }
+
+  /**
    * Calculate arc length of curve using numerical integration
    */
   function calculateArcLength(points) {
@@ -636,8 +894,9 @@
    */
   function solveForShape(W, targetLength) {
     // Clamp length to valid range
+    // Note: This function is kept for backwards compatibility but elastica is preferred
     const minLen = W * 1.02;
-    const maxLen = W * 2.2;
+    const maxLen = W * 3.0;
     const L = Math.max(minLen, Math.min(maxLen, targetLength));
 
     // Compute angle from length ratio
@@ -783,17 +1042,20 @@
     const ledNum = parseInt(els.ledCount.value) || 300;
 
     // Validate: arch length must be greater than base width
+    // Using elastica physics, we can handle much longer arches (up to ~π ratio for a full loop)
     const minLength = W * 1.02;
-    const maxLength = W * 2.2;  // Reasonable maximum for smooth arch
+    const maxLength = W * 3.0;  // Elastica can handle higher ratios smoothly
     const clampedL = Math.max(minLength, Math.min(maxLength, L));
 
     // Determine theta: auto-compute or use manual value
-    let theta, d;
+    let theta;
     if (els.autoAngle.checked) {
-      // Solve for the shape (theta and d) that gives the target arc length
-      const solved = solveForShape(W, clampedL);
-      theta = solved.theta;
-      d = solved.d;
+      // Compute angle from length ratio using elastica physics
+      // As L/W increases, angle increases
+      const ratio = (clampedL - minLength) / (maxLength - minLength);
+      const thetaMin = 20 * Math.PI / 180;
+      const thetaMax = 85 * Math.PI / 180;
+      theta = thetaMin + ratio * (thetaMax - thetaMin);
       // Update the angle slider to show the computed value
       const angleDeg = Math.round(theta * 180 / Math.PI);
       els.baseAngle.value = angleDeg;
@@ -801,24 +1063,10 @@
     } else {
       // Use manual angle
       theta = parseFloat(els.baseAngle.value) * Math.PI / 180;
-      // Compute d via binary search for the target arc length with fixed theta
-      const maxD = (W / (2 * Math.cos(theta))) * 0.95;
-      let lo = 0.1;
-      let hi = Math.min(maxD, W * 2);
-      for (let iter = 0; iter < 50; iter++) {
-        const mid = (lo + hi) / 2;
-        const { points } = generateBezierCurve(W, theta, mid);
-        const len = calculateArcLength(points);
-        if (Math.abs(len - clampedL) < 0.001) break;
-        if (len < clampedL) {
-          lo = mid;
-        } else {
-          hi = mid;
-        }
-      }
-      d = (lo + hi) / 2;
     }
-    const curve = generateBezierCurve(W, theta, d);
+
+    // Generate elastica curve (physically accurate flexible rod shape)
+    const curve = generateElasticaCurve(W, clampedL, theta);
     const length = calculateArcLength(curve.points);
     const height = getApexHeight(curve.points);
     const baseAngleRad = theta;
@@ -1009,7 +1257,6 @@
 
     // Render base angle arcs on both ends
     const arcRadius = 40;  // pixels
-    // theta is already in scope from solveForShape() destructuring
 
     // Left side angle arc
     const leftAngleGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');

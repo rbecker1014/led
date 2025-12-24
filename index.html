@@ -98,6 +98,9 @@
       opacity: 0.5;
       cursor: not-allowed;
     }
+    input[type="range"]:disabled {
+      opacity: 0.3;
+    }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
 
@@ -330,8 +333,22 @@
           <input type="number" id="archLength" value="16" min="4" max="40" step="0.5">
         </div>
       </div>
+      <div class="slider-field">
+        <label for="baseAngle">Base angle (degrees)</label>
+        <div class="slider-row">
+          <input type="range" id="baseAngleSlider" value="45" min="15" max="85" step="1">
+          <input type="number" id="baseAngle" value="45" min="15" max="85" step="1">
+        </div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Auto-compute angle from arch length</span>
+        <label class="toggle">
+          <input type="checkbox" id="autoAngle" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
       <div class="note" style="margin-top: 14px;">
-        <strong>How it works:</strong> Set the distance between the base anchors and the total tubing length. The arch shape, height, and base angle are computed automatically. Shorter tubing = shallower angle.
+        <strong>How it works:</strong> Set the distance between the base anchors and the total tubing length. With auto-angle on, the base angle is computed automatically. Turn it off to manually adjust the angle at which the tubes enter the ground anchors.
       </div>
     </div>
 
@@ -461,6 +478,9 @@
     widthSlider: $('widthSlider'),
     archLength: $('archLength'),
     archLengthSlider: $('archLengthSlider'),
+    baseAngle: $('baseAngle'),
+    baseAngleSlider: $('baseAngleSlider'),
+    autoAngle: $('autoAngle'),
     stickLength: $('stickLength'),
     cutStrategy: $('cutStrategy'),
     ledLength: $('ledLength'),
@@ -767,8 +787,37 @@
     const maxLength = W * 2.2;  // Reasonable maximum for smooth arch
     const clampedL = Math.max(minLength, Math.min(maxLength, L));
 
-    // Solve for the shape (theta and d) that gives the target arc length
-    const { theta, d } = solveForShape(W, clampedL);
+    // Determine theta: auto-compute or use manual value
+    let theta, d;
+    if (els.autoAngle.checked) {
+      // Solve for the shape (theta and d) that gives the target arc length
+      const solved = solveForShape(W, clampedL);
+      theta = solved.theta;
+      d = solved.d;
+      // Update the angle slider to show the computed value
+      const angleDeg = Math.round(theta * 180 / Math.PI);
+      els.baseAngle.value = angleDeg;
+      els.baseAngleSlider.value = angleDeg;
+    } else {
+      // Use manual angle
+      theta = parseFloat(els.baseAngle.value) * Math.PI / 180;
+      // Compute d via binary search for the target arc length with fixed theta
+      const maxD = (W / (2 * Math.cos(theta))) * 0.95;
+      let lo = 0.1;
+      let hi = Math.min(maxD, W * 2);
+      for (let iter = 0; iter < 50; iter++) {
+        const mid = (lo + hi) / 2;
+        const { points } = generateBezierCurve(W, theta, mid);
+        const len = calculateArcLength(points);
+        if (Math.abs(len - clampedL) < 0.001) break;
+        if (len < clampedL) {
+          lo = mid;
+        } else {
+          hi = mid;
+        }
+      }
+      d = (lo + hi) / 2;
+    }
     const curve = generateBezierCurve(W, theta, d);
     const length = calculateArcLength(curve.points);
     const height = getApexHeight(curve.points);
@@ -1018,6 +1067,17 @@
     // Sync sliders with number inputs
     syncSliderAndInput(els.widthSlider, els.width);
     syncSliderAndInput(els.archLengthSlider, els.archLength);
+    syncSliderAndInput(els.baseAngleSlider, els.baseAngle);
+
+    // Auto angle toggle - disable/enable angle slider
+    els.autoAngle.addEventListener('change', () => {
+      els.baseAngle.disabled = els.autoAngle.checked;
+      els.baseAngleSlider.disabled = els.autoAngle.checked;
+      render();
+    });
+    // Initialize disabled state
+    els.baseAngle.disabled = els.autoAngle.checked;
+    els.baseAngleSlider.disabled = els.autoAngle.checked;
 
     // Other input listeners
     const inputs = [

@@ -348,7 +348,7 @@
         </label>
       </div>
       <div class="note" style="margin-top: 14px;">
-        <strong>How it works:</strong> Uses an <em>elastica</em> curve model—the natural shape of a bent flexible rod. This distributes bending stress evenly along the tube (unlike simpler models that concentrate stress at the apex). With auto-angle on, the base angle is computed from the length ratio. Turn it off to manually set the pivot angle.
+        <strong>How it works:</strong> Uses a <em>battered wall</em> curve model—straighter sides that slope inward like a fortification wall, with a smooth curved top. This creates a visually striking shape that is wider at the base. With auto-angle on, the base angle is optimized for even stress distribution. Turn it off to manually set the pivot angle.
       </div>
     </div>
 
@@ -731,6 +731,107 @@
   }
 
   /**
+   * Generate a battered wall curve - straighter sides that slope inward.
+   * Creates a shape similar to a fortification wall: wider at the base,
+   * with relatively straight sides tapering inward, and a curved top.
+   *
+   * @param {number} W - Width at ground (distance between anchors)
+   * @param {number} L - Total arc length
+   * @param {number} theta0 - Base angle in radians (angle at anchors from horizontal)
+   */
+  function generateBatteredWallCurve(W, L, theta0) {
+    const n = CURVE_SAMPLES;
+
+    // For a battered wall, we want relatively straight sides with a curved top
+    // straightRatio: what fraction of each half of the curve is straight (0.5-0.8 typical)
+    const straightRatio = 0.65;
+
+    // Total arc is divided into:
+    // - Left straight: straightRatio * L/2
+    // - Top curve: L * (1 - straightRatio)
+    // - Right straight: straightRatio * L/2
+
+    const straightLen = (L * straightRatio) / 2;  // Length of each straight side
+    const curveLen = L * (1 - straightRatio);     // Length of top curve
+
+    // Straight sides go at angle theta0
+    const dxStraight = straightLen * Math.cos(theta0);
+    const dyStraight = straightLen * Math.sin(theta0);
+
+    // Points where straight sections end (top of the walls)
+    const leftTop = { x: -W/2 + dxStraight, y: dyStraight };
+    const rightTop = { x: W/2 - dxStraight, y: dyStraight };
+
+    // Calculate samples for each section
+    const straightSamples = Math.floor(n * straightRatio / 2);
+    const curveSamples = n - 2 * straightSamples;
+
+    const points = [];
+
+    // LEFT STRAIGHT SECTION - goes from bottom left up at angle theta0
+    for (let i = 0; i <= straightSamples; i++) {
+      const t = i / straightSamples;
+      points.push({
+        x: -W/2 + t * dxStraight,
+        y: t * dyStraight
+      });
+    }
+
+    // TOP CURVED SECTION - connects the two wall tops with a smooth curve
+    // Use a cubic Bezier for smooth transition
+    // The curve should be tangent to the walls at the connection points
+
+    // Tangent direction at left top (continuing at angle theta0)
+    const leftTangentX = Math.cos(theta0);
+    const leftTangentY = Math.sin(theta0);
+
+    // Tangent direction at right top (coming down at angle pi - theta0)
+    const rightTangentX = -Math.cos(theta0);
+    const rightTangentY = Math.sin(theta0);
+
+    // Control point distance - proportional to curve length for smooth transition
+    const cpDist = curveLen * 0.4;
+
+    // Bezier control points
+    const P0 = leftTop;
+    const P1 = {
+      x: leftTop.x + cpDist * leftTangentX,
+      y: leftTop.y + cpDist * leftTangentY
+    };
+    const P2 = {
+      x: rightTop.x + cpDist * rightTangentX,
+      y: rightTop.y + cpDist * rightTangentY
+    };
+    const P3 = rightTop;
+
+    // Generate Bezier curve points (skip first point, already added)
+    for (let i = 1; i <= curveSamples; i++) {
+      const t = i / curveSamples;
+      const mt = 1 - t;
+      const mt2 = mt * mt;
+      const mt3 = mt2 * mt;
+      const t2 = t * t;
+      const t3 = t2 * t;
+
+      points.push({
+        x: mt3 * P0.x + 3 * mt2 * t * P1.x + 3 * mt * t2 * P2.x + t3 * P3.x,
+        y: mt3 * P0.y + 3 * mt2 * t * P1.y + 3 * mt * t2 * P2.y + t3 * P3.y
+      });
+    }
+
+    // RIGHT STRAIGHT SECTION - goes from top right down at angle theta0
+    for (let i = 1; i <= straightSamples; i++) {
+      const t = i / straightSamples;
+      points.push({
+        x: rightTop.x + t * dxStraight,
+        y: rightTop.y - t * dyStraight
+      });
+    }
+
+    return { points, theta: theta0 };
+  }
+
+  /**
    * Generate elastica using discrete relaxation.
    * This is a fallback that always converges.
    */
@@ -899,7 +1000,7 @@
 
     // Function to evaluate: stress concentration for a given angle
     function evaluate(theta) {
-      const curve = generateElasticaCurve(W, L, theta);
+      const curve = generateBatteredWallCurve(W, L, theta);
       const curvatures = calculateCurvature(curve.points);
       return calculateConcentration(curvatures);
     }
@@ -1108,8 +1209,8 @@
       theta = parseFloat(els.baseAngle.value) * Math.PI / 180;
     }
 
-    // Generate elastica curve (physically accurate flexible rod shape)
-    const curve = generateElasticaCurve(W, clampedL, theta);
+    // Generate battered wall curve (straighter sides, curved top)
+    const curve = generateBatteredWallCurve(W, clampedL, theta);
     const length = calculateArcLength(curve.points);
     const height = getApexHeight(curve.points);
     const baseAngleRad = theta;

@@ -805,10 +805,72 @@
     const rightTangentX = -Math.cos(theta0);
     const rightTangentY = Math.sin(theta0);
 
-    // Control point distance - proportional to curve length for smooth transition
-    const cpDist = curveLen * 0.4;
+    // Helper function to generate Bezier points for a given control point distance
+    function generateBezierPoints(cpDist, numSamples) {
+      const P0 = leftTop;
+      const P1 = {
+        x: leftTop.x + cpDist * leftTangentX,
+        y: leftTop.y + cpDist * leftTangentY
+      };
+      const P2 = {
+        x: rightTop.x + cpDist * rightTangentX,
+        y: rightTop.y + cpDist * rightTangentY
+      };
+      const P3 = rightTop;
 
-    // Bezier control points
+      const bezierPoints = [P0];
+      for (let i = 1; i <= numSamples; i++) {
+        const t = i / numSamples;
+        const mt = 1 - t;
+        const mt2 = mt * mt;
+        const mt3 = mt2 * mt;
+        const t2 = t * t;
+        const t3 = t2 * t;
+
+        bezierPoints.push({
+          x: mt3 * P0.x + 3 * mt2 * t * P1.x + 3 * mt * t2 * P2.x + t3 * P3.x,
+          y: mt3 * P0.y + 3 * mt2 * t * P1.y + 3 * mt * t2 * P2.y + t3 * P3.y
+        });
+      }
+      return bezierPoints;
+    }
+
+    // Helper to calculate arc length of a set of points
+    function bezierArcLength(bezierPoints) {
+      let len = 0;
+      for (let i = 1; i < bezierPoints.length; i++) {
+        const dx = bezierPoints[i].x - bezierPoints[i - 1].x;
+        const dy = bezierPoints[i].y - bezierPoints[i - 1].y;
+        len += Math.sqrt(dx * dx + dy * dy);
+      }
+      return len;
+    }
+
+    // Use binary search to find the cpDist that produces the target arc length
+    // for the curved section (curveLen)
+    let cpDistLow = curveLen * 0.1;
+    let cpDistHigh = curveLen * 2.0;
+    let cpDist = curveLen * 0.4; // Initial guess
+    const targetLen = curveLen;
+    const tolerance = 0.001; // 0.001 ft tolerance
+
+    for (let iter = 0; iter < 50; iter++) {
+      cpDist = (cpDistLow + cpDistHigh) / 2;
+      const testPoints = generateBezierPoints(cpDist, curveSamples);
+      const actualLen = bezierArcLength(testPoints);
+
+      if (Math.abs(actualLen - targetLen) < tolerance) {
+        break; // Found good enough cpDist
+      }
+
+      if (actualLen < targetLen) {
+        cpDistLow = cpDist; // Need longer curve, increase cpDist
+      } else {
+        cpDistHigh = cpDist; // Curve too long, decrease cpDist
+      }
+    }
+
+    // Generate final Bezier points with the calibrated cpDist
     const P0 = leftTop;
     const P1 = {
       x: leftTop.x + cpDist * leftTangentX,

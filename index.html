@@ -432,7 +432,7 @@
       </div>
       <div class="results-grid" style="margin-top: 12px;">
         <div class="result-item" style="grid-column: span 2;">
-          <div class="result-label">Coupling radius (at ±2.5" from join)</div>
+          <div class="result-label">Sagitta (5" chord at join)</div>
           <div class="result-value" id="resultCouplingRadius">—</div>
         </div>
       </div>
@@ -474,7 +474,7 @@
       </div>
       <div class="legend-item">
         <div class="legend-dot" style="background: #22d3ee;"></div>
-        <span>Radius sample (±2.5")</span>
+        <span>Sagitta sample</span>
       </div>
       <div class="legend-item">
         <div class="legend-line" style="background: #fbbf24; height: 2px;"></div>
@@ -1073,16 +1073,17 @@
   }
 
   /**
-   * Calculate coupling radius at ±offset distance from join point.
-   * Returns radius in inches at each side of the join for fabricating couplings.
+   * Calculate sagitta at the join point for coupling fabrication.
+   * The sagitta is the height of the arc above a chord of given length.
+   * Formula: s = R - sqrt(R² - (c/2)²) where R is radius, c is chord length.
    *
    * @param {Array} points - Curve points
    * @param {Array} curvatures - Curvature at each point
    * @param {number} joinPosition - Position of join (0-1 fraction of arc length)
-   * @param {number} offsetInches - Distance from join to sample (in inches)
-   * @returns {Object} { leftRadius, rightRadius, leftIndex, rightIndex } radii in inches
+   * @param {number} chordInches - Chord length in inches (e.g., 5")
+   * @returns {Object} { sagitta, joinIndex } sagitta in inches
    */
-  function calculateCouplingRadius(points, curvatures, joinPosition, offsetInches) {
+  function calculateCouplingSagitta(points, curvatures, joinPosition, chordInches) {
     if (joinPosition === null) return null;
 
     // Calculate cumulative arc distances (in feet)
@@ -1095,42 +1096,41 @@
 
     const totalLength = distances[distances.length - 1];
     const joinDist = joinPosition * totalLength;  // arc distance to join in feet
-    const offsetFeet = offsetInches / 12;  // convert inches to feet
 
-    // Find index for left sample point (join - offset)
-    const leftDist = Math.max(0, joinDist - offsetFeet);
-    let leftIndex = 0;
+    // Find index for join point
+    let joinIndex = 0;
     for (let i = 1; i < distances.length; i++) {
-      if (distances[i] >= leftDist) {
-        leftIndex = i;
+      if (distances[i] >= joinDist) {
+        joinIndex = i;
         break;
       }
     }
 
-    // Find index for right sample point (join + offset)
-    const rightDist = Math.min(totalLength, joinDist + offsetFeet);
-    let rightIndex = points.length - 1;
-    for (let i = 1; i < distances.length; i++) {
-      if (distances[i] >= rightDist) {
-        rightIndex = i;
-        break;
-      }
-    }
-
-    // Get curvatures at sample points (curvature is in 1/feet)
-    const leftCurvature = curvatures[leftIndex] || 0;
-    const rightCurvature = curvatures[rightIndex] || 0;
+    // Get curvature at join point (curvature is in 1/feet)
+    const curvature = curvatures[joinIndex] || 0;
 
     // Convert curvature to radius in inches
     // radius (ft) = 1 / curvature (1/ft), then convert to inches
-    const leftRadius = leftCurvature > 0.0001 ? (1 / leftCurvature) * 12 : Infinity;
-    const rightRadius = rightCurvature > 0.0001 ? (1 / rightCurvature) * 12 : Infinity;
+    const radiusInches = curvature > 0.0001 ? (1 / curvature) * 12 : Infinity;
+
+    // Calculate sagitta: s = R - sqrt(R² - (c/2)²)
+    // For a 5" chord, (c/2) = 2.5"
+    const halfChord = chordInches / 2;
+    let sagitta;
+    if (radiusInches === Infinity) {
+      sagitta = 0;  // Straight line has no sagitta
+    } else if (radiusInches < halfChord) {
+      // Radius smaller than half chord means very tight curve
+      // In this case, sagitta would be approximately the diameter
+      sagitta = radiusInches * 2;
+    } else {
+      sagitta = radiusInches - Math.sqrt(radiusInches * radiusInches - halfChord * halfChord);
+    }
 
     return {
-      leftRadius,
-      rightRadius,
-      leftIndex,
-      rightIndex
+      sagitta,
+      radiusInches,
+      joinIndex
     };
   }
 
@@ -1373,7 +1373,7 @@
     const maxCurvature = Math.max(...curvatures);
     const cutInfo = calculateCuts(length, stickLen, cutStrategy);
     const ledFit = calculateLedFit(length, ledLen);
-    const couplingRadius = calculateCouplingRadius(curve.points, curvatures, cutInfo.joinPosition, 2.5);
+    const couplingSagitta = calculateCouplingSagitta(curve.points, curvatures, cutInfo.joinPosition, 5);
 
     // Update results
     els.resultHeight.textContent = `${height.toFixed(2)} ft`;
@@ -1388,11 +1388,10 @@
     els.resultWaste.textContent = `${cutInfo.waste.toFixed(2)} ft`;
     els.resultWaste.className = 'result-value' + (cutInfo.waste > 2 ? ' warn' : '');
 
-    // Update coupling radius display
-    if (couplingRadius) {
-      const leftR = couplingRadius.leftRadius === Infinity ? '∞' : couplingRadius.leftRadius.toFixed(1);
-      const rightR = couplingRadius.rightRadius === Infinity ? '∞' : couplingRadius.rightRadius.toFixed(1);
-      els.resultCouplingRadius.textContent = `L: ${leftR}" | R: ${rightR}"`;
+    // Update sagitta display
+    if (couplingSagitta) {
+      const sagittaStr = couplingSagitta.sagitta.toFixed(3);
+      els.resultCouplingRadius.textContent = `${sagittaStr}"`;
     } else {
       els.resultCouplingRadius.textContent = 'No join';
     }
@@ -1475,54 +1474,19 @@
       text.textContent = 'Join';
       els.archGroup.appendChild(text);
 
-      // Render coupling radius sample points (±2.5" from join)
-      if (couplingRadius) {
-        // Left sample point
-        const leftP = curve.points[couplingRadius.leftIndex];
-        const sLeftP = toSVG(leftP.x, leftP.y, scale, centerX);
-        const leftCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        leftCircle.setAttribute('cx', sLeftP.x);
-        leftCircle.setAttribute('cy', sLeftP.y);
-        leftCircle.setAttribute('r', '6');
-        leftCircle.setAttribute('fill', '#22d3ee');
-        leftCircle.setAttribute('stroke', 'white');
-        leftCircle.setAttribute('stroke-width', '1.5');
-        els.archGroup.appendChild(leftCircle);
-
-        // Left radius label
-        const leftRadiusText = couplingRadius.leftRadius === Infinity ? '∞' : couplingRadius.leftRadius.toFixed(1) + '"';
-        const leftLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        leftLabel.setAttribute('x', sLeftP.x - 10);
-        leftLabel.setAttribute('y', sLeftP.y - 12);
-        leftLabel.setAttribute('fill', '#22d3ee');
-        leftLabel.setAttribute('font-size', '10');
-        leftLabel.setAttribute('font-family', 'system-ui');
-        leftLabel.setAttribute('text-anchor', 'end');
-        leftLabel.textContent = `R=${leftRadiusText}`;
-        els.archGroup.appendChild(leftLabel);
-
-        // Right sample point
-        const rightP = curve.points[couplingRadius.rightIndex];
-        const sRightP = toSVG(rightP.x, rightP.y, scale, centerX);
-        const rightCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        rightCircle.setAttribute('cx', sRightP.x);
-        rightCircle.setAttribute('cy', sRightP.y);
-        rightCircle.setAttribute('r', '6');
-        rightCircle.setAttribute('fill', '#22d3ee');
-        rightCircle.setAttribute('stroke', 'white');
-        rightCircle.setAttribute('stroke-width', '1.5');
-        els.archGroup.appendChild(rightCircle);
-
-        // Right radius label
-        const rightRadiusText = couplingRadius.rightRadius === Infinity ? '∞' : couplingRadius.rightRadius.toFixed(1) + '"';
-        const rightLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        rightLabel.setAttribute('x', sRightP.x + 10);
-        rightLabel.setAttribute('y', sRightP.y - 12);
-        rightLabel.setAttribute('fill', '#22d3ee');
-        rightLabel.setAttribute('font-size', '10');
-        rightLabel.setAttribute('font-family', 'system-ui');
-        rightLabel.textContent = `R=${rightRadiusText}`;
-        els.archGroup.appendChild(rightLabel);
+      // Render sagitta indicator at join point
+      if (couplingSagitta) {
+        // Sagitta label below the join point
+        const sagittaText = couplingSagitta.sagitta.toFixed(3) + '"';
+        const sagittaLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        sagittaLabel.setAttribute('x', sjp.x);
+        sagittaLabel.setAttribute('y', sjp.y + 25);
+        sagittaLabel.setAttribute('fill', '#22d3ee');
+        sagittaLabel.setAttribute('font-size', '11');
+        sagittaLabel.setAttribute('font-family', 'system-ui');
+        sagittaLabel.setAttribute('text-anchor', 'middle');
+        sagittaLabel.textContent = `s=${sagittaText}`;
+        els.archGroup.appendChild(sagittaLabel);
       }
     }
 
